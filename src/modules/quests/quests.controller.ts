@@ -7,9 +7,7 @@ export class QuestsController {
 
   list = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { user: sessionUser } = req.session;
-
-      if (!sessionUser) {
+      if (!req.userId) {
         res.status(HttpStatus.UNAUTHORIZED).json({
           success: false,
           error: 'Not authenticated',
@@ -17,7 +15,7 @@ export class QuestsController {
         return;
       }
 
-      const quests = await this.questsService.getUserQuests(sessionUser.userId);
+      const quests = await this.questsService.getUserQuests(req.userId);
 
       res.json({
         success: true,

@@ -2,6 +2,8 @@ import type { Request, Response, NextFunction } from 'express';
 import { AuthService } from './auth.service.js';
 import { HttpStatus } from '@shared/types/index.js';
 import { config } from '@config/env.js';
+import { jwtService } from '@shared/auth/jwt.service.js';
+import { prisma } from '@shared/utils/index.js';
 
 export class AuthController {
   private authService = new AuthService();
@@ -43,9 +45,15 @@ export class AuthController {
       }
 
       const user = await this.authService.handleCallback(code);
-      const session = this.authService.createSession(user);
 
-      req.session.user = session;
+      // Generate JWT token
+      const token = jwtService.generateToken({
+        userId: user.id,
+        stravaId: user.stravaId,
+      });
+
+      // Set JWT as httpOnly cookie
+      res.cookie('auth_token', token, jwtService.getCookieOptions());
 
       res.redirect(`${redirectUri}/dashboard?login=success`);
     } catch (error) {
@@ -75,7 +83,7 @@ export class AuthController {
 
   me = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      if (!req.session.user) {
+      if (!req.userId) {
         res.status(HttpStatus.UNAUTHORIZED).json({
           success: false,
           error: 'Not authenticated',
@@ -83,21 +91,53 @@ export class AuthController {
         return;
       }
 
+      // Fetch fresh user data from database
+      const dbUser = await prisma.user.findUnique({
+        where: { id: req.userId },
+        select: {
+          id: true,
+          stravaId: true,
+          username: true,
+          firstname: true,
+          lastname: true,
+          profile: true,
+          lastSyncedAt: true,
+        },
+      });
+
+      if (!dbUser) {
+        res.status(HttpStatus.NOT_FOUND).json({
+          success: false,
+          error: 'User not found',
+        });
+        return;
+      }
+
       res.json({
         success: true,
-        data: req.session.user,
+        data: {
+          userId: dbUser.id,
+          stravaId: dbUser.stravaId,
+          username: dbUser.username || '',
+          firstname: dbUser.firstname,
+          lastname: dbUser.lastname,
+          profile: dbUser.profile,
+          lastSyncedAt: dbUser.lastSyncedAt?.toISOString(),
+        },
       });
     } catch (error) {
       next(error);
     }
   };
 
-  logout = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  logout = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      req.session.destroy((err) => {
-        if (err) {
-          console.error('Session destruction error:', err);
-        }
+      // Clear the auth cookie
+      res.clearCookie('auth_token', {
+        httpOnly: true,
+        secure: config.nodeEnv === 'production',
+        sameSite: config.nodeEnv === 'production' ? 'none' : 'lax',
+        path: '/',
       });
 
       res.json({
@@ -111,7 +151,7 @@ export class AuthController {
 
   deleteAccount = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      if (!req.session.user) {
+      if (!req.userId) {
         res.status(HttpStatus.UNAUTHORIZED).json({
           success: false,
           error: 'Not authenticated',
@@ -119,7 +159,7 @@ export class AuthController {
         return;
       }
 
-      const deleted = await this.authService.deleteUser(req.session.user.userId);
+      const deleted = await this.authService.deleteUser(req.userId);
 
       if (!deleted) {
         res.status(HttpStatus.NOT_FOUND).json({
@@ -129,10 +169,12 @@ export class AuthController {
         return;
       }
 
-      req.session.destroy((err) => {
-        if (err) {
-          console.error('Session destruction error:', err);
-        }
+      // Clear the auth cookie
+      res.clearCookie('auth_token', {
+        httpOnly: true,
+        secure: config.nodeEnv === 'production',
+        sameSite: config.nodeEnv === 'production' ? 'none' : 'lax',
+        path: '/',
       });
 
       res.json({

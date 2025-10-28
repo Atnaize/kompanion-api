@@ -7,9 +7,7 @@ export class StatsController {
 
   getUserStats = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { user: sessionUser } = req.session;
-
-      if (!sessionUser) {
+      if (!req.userId) {
         res.status(HttpStatus.UNAUTHORIZED).json({
           success: false,
           error: 'Not authenticated',
@@ -17,7 +15,7 @@ export class StatsController {
         return;
       }
 
-      const stats = await this.statsService.calculateUserStats(sessionUser.userId);
+      const stats = await this.statsService.calculateUserStats(req.userId);
 
       res.json({
         success: true,

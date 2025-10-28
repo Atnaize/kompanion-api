@@ -7,9 +7,7 @@ export class AchievementsController {
 
   list = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { user: sessionUser } = req.session;
-
-      if (!sessionUser) {
+      if (!req.userId) {
         res.status(HttpStatus.UNAUTHORIZED).json({
           success: false,
           error: 'Not authenticated',
@@ -17,7 +15,7 @@ export class AchievementsController {
         return;
       }
 
-      const achievements = await this.achievementsService.getUserAchievements(sessionUser.userId);
+      const achievements = await this.achievementsService.getUserAchievements(req.userId);
 
       res.json({
         success: true,
@@ -30,9 +28,7 @@ export class AchievementsController {
 
   redeem = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { user: sessionUser } = req.session;
-
-      if (!sessionUser) {
+      if (!req.userId) {
         res.status(HttpStatus.UNAUTHORIZED).json({
           success: false,
           error: 'Not authenticated',
@@ -51,7 +47,7 @@ export class AchievementsController {
       }
 
       const achievement = await this.achievementsService.redeemAchievement(
-        sessionUser.userId,
+        req.userId,
         achievementId
       );
 

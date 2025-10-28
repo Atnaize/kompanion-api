@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import session from 'express-session';
+import cookieParser from 'cookie-parser';
 import { config } from './config/env.js';
 import { errorHandler } from './shared/middleware/index.js';
 import { authRoutes } from './modules/auth/index.js';
@@ -37,20 +37,7 @@ app.use(
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-app.use(
-  session({
-    secret: config.session.secret,
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      secure: config.nodeEnv === 'production',
-      httpOnly: true,
-      maxAge: 1000 * 60 * 60 * 24 * 7,
-      sameSite: config.nodeEnv === 'production' ? 'none' : 'lax',
-    },
-  })
-);
+app.use(cookieParser());
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

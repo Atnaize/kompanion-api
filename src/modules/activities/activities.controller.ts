@@ -9,9 +9,7 @@ export class ActivitiesController {
 
   list = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { user: sessionUser } = req.session;
-
-      if (!sessionUser) {
+      if (!req.userId) {
         res.status(HttpStatus.UNAUTHORIZED).json({
           success: false,
           error: 'Not authenticated',
@@ -19,7 +17,7 @@ export class ActivitiesController {
         return;
       }
 
-      const activities = await this.activitiesService.getUserActivities(sessionUser.userId);
+      const activities = await this.activitiesService.getUserActivities(req.userId);
 
       res.json({
         success: true,
@@ -32,9 +30,7 @@ export class ActivitiesController {
 
   sync = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { user: sessionUser } = req.session;
-
-      if (!sessionUser) {
+      if (!req.stravaId) {
         res.status(HttpStatus.UNAUTHORIZED).json({
           success: false,
           error: 'Not authenticated',
@@ -42,7 +38,7 @@ export class ActivitiesController {
         return;
       }
 
-      const user = await this.authService.getUserByStravaId(sessionUser.stravaId);
+      const user = await this.authService.getUserByStravaId(req.stravaId);
 
       if (!user) {
         res.status(HttpStatus.NOT_FOUND).json({
@@ -66,9 +62,7 @@ export class ActivitiesController {
 
   syncWithProgress = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { user: sessionUser } = req.session;
-
-      if (!sessionUser) {
+      if (!req.stravaId) {
         res.status(HttpStatus.UNAUTHORIZED).json({
           success: false,
           error: 'Not authenticated',
@@ -76,7 +70,7 @@ export class ActivitiesController {
         return;
       }
 
-      const user = await this.authService.getUserByStravaId(sessionUser.stravaId);
+      const user = await this.authService.getUserByStravaId(req.stravaId);
 
       if (!user) {
         res.status(HttpStatus.NOT_FOUND).json({
@@ -103,12 +97,6 @@ export class ActivitiesController {
       try {
         const result = await this.activitiesService.syncActivitiesWithProgress(user, sendEvent);
 
-        // Update session with fresh user data (including lastSyncedAt)
-        const updatedUser = await this.authService.getUserByStravaId(sessionUser.stravaId);
-        if (updatedUser) {
-          req.session.user = this.authService.createSession(updatedUser);
-        }
-
         sendEvent({
           type: 'complete',
           total: result.synced,
@@ -130,10 +118,9 @@ export class ActivitiesController {
 
   getById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { user: sessionUser } = req.session;
       const { id } = req.params;
 
-      if (!sessionUser) {
+      if (!req.userId) {
         res.status(HttpStatus.UNAUTHORIZED).json({
           success: false,
           error: 'Not authenticated',
@@ -151,7 +138,7 @@ export class ActivitiesController {
         return;
       }
 
-      const activity = await this.activitiesService.getActivityById(activityId, sessionUser.userId);
+      const activity = await this.activitiesService.getActivityById(activityId, req.userId);
 
       if (!activity) {
         res.status(HttpStatus.NOT_FOUND).json({
