@@ -1,7 +1,4 @@
 {
-  "framework": null,
-  "buildCommand": "npm run build:production",
-  "outputDirectory": ".",
   "rewrites": [
     {
       "source": "/(.*)",

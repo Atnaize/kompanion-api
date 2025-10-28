@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "prisma generate && tsc && tsc-alias",
-    "build:production": "prisma generate && prisma migrate deploy && npm run db:seed && tsc && tsc-alias",
+    "vercel-build": "prisma generate && prisma migrate deploy && npm run db:seed && tsc && tsc-alias",
     "start": "node dist/server.js",
     "lint": "eslint",
     "format": "prettier --write \"src/**/*.ts\"",
