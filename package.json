@@ -8,7 +8,6 @@
     "dev": "tsx watch src/server.ts",
     "build": "prisma generate && tsc && tsc-alias",
     "postbuild": "prisma migrate deploy && npm run db:seed",
-    "vercel-build": "npm run build",
     "start": "node dist/server.js",
     "lint": "eslint",
     "format": "prettier --write \"src/**/*.ts\"",
