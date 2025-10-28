@@ -85,21 +85,26 @@ export class ActivitiesService {
     // Filter to only new activities
     const newActivities = allActivities.filter((a) => !existingIds.has(a.id.toString()));
 
-    // Bulk insert new activities using transaction
+    // Bulk insert new activities - batch processing for performance
     if (newActivities.length > 0) {
-      await prisma.$transaction(async (tx) => {
-        // Insert activities
-        for (const activity of newActivities) {
-          await tx.activity.create({
-            data: this.mapStravaActivityToDb(activity, user.id),
-          });
-        }
+      const batchSize = 100;
 
-        // Update user's lastSyncedAt
-        await tx.user.update({
-          where: { id: user.id },
-          data: { lastSyncedAt: new Date() },
+      // Process in batches to avoid serverless timeout
+      for (let i = 0; i < newActivities.length; i += batchSize) {
+        const batch = newActivities.slice(i, i + batchSize);
+        const data = batch.map((activity) => this.mapStravaActivityToDb(activity, user.id));
+
+        // Use createMany for bulk insert (much faster than individual creates)
+        await prisma.activity.createMany({
+          data,
+          skipDuplicates: true,
         });
+      }
+
+      // Update user's lastSyncedAt after all activities are saved
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { lastSyncedAt: new Date() },
       });
     } else {
       // Just update lastSyncedAt even if no new activities
@@ -183,34 +188,39 @@ export class ActivitiesService {
     const existingIds = new Set(existingActivityIds.map((a) => a.id.toString()));
     const newActivities = allActivities.filter((a) => !existingIds.has(a.id.toString()));
 
-    // Save with progress tracking
+    // Save with progress tracking - batch processing for performance
     if (newActivities.length > 0) {
+      const batchSize = 100;
       let saved = 0;
 
-      await prisma.$transaction(async (tx) => {
-        for (const activity of newActivities) {
-          await tx.activity.create({
-            data: this.mapStravaActivityToDb(activity, user.id),
-          });
-          saved++;
+      // Process in batches to avoid serverless timeout
+      for (let i = 0; i < newActivities.length; i += batchSize) {
+        const batch = newActivities.slice(i, i + batchSize);
+        const data = batch.map((activity) => this.mapStravaActivityToDb(activity, user.id));
 
-          if (saved % 10 === 0 || saved === newActivities.length) {
-            onProgress({
-              type: 'saving',
-              current: saved,
-              total: newActivities.length,
-              message: `Saving activities... ${saved}/${newActivities.length}`,
-            });
-          }
-        }
-
-        // Update user's lastSyncedAt
-        await tx.user.update({
-          where: { id: user.id },
-          data: { lastSyncedAt: new Date() },
+        // Use createMany for bulk insert (much faster than individual creates)
+        await prisma.activity.createMany({
+          data,
+          skipDuplicates: true, // Skip if activity already exists
         });
+
+        saved += batch.length;
+
+        onProgress({
+          type: 'saving',
+          current: saved,
+          total: newActivities.length,
+          message: `Saving activities... ${saved}/${newActivities.length}`,
+        });
+      }
+
+      // Update user's lastSyncedAt after all activities are saved
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { lastSyncedAt: new Date() },
       });
     } else {
+      // Just update lastSyncedAt even if no new activities
       await prisma.user.update({
         where: { id: user.id },
         data: { lastSyncedAt: new Date() },
