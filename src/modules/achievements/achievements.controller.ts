@@ -27,4 +27,47 @@ export class AchievementsController {
       next(error);
     }
   };
+
+  redeem = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { user: sessionUser } = req.session;
+
+      if (!sessionUser) {
+        res.status(HttpStatus.UNAUTHORIZED).json({
+          success: false,
+          error: 'Not authenticated',
+        });
+        return;
+      }
+
+      const { achievementId } = req.params;
+
+      if (!achievementId) {
+        res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          error: 'Achievement ID is required',
+        });
+        return;
+      }
+
+      const achievement = await this.achievementsService.redeemAchievement(
+        sessionUser.userId,
+        achievementId
+      );
+
+      res.json({
+        success: true,
+        data: achievement,
+      });
+    } catch (error) {
+      if (error instanceof Error) {
+        res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          error: error.message,
+        });
+        return;
+      }
+      next(error);
+    }
+  };
 }

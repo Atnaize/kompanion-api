@@ -1,13 +1,11 @@
 import axios from 'axios';
 import { config } from '@config/env.js';
-import { JsonStorage } from '@shared/utils/index.js';
+import { prisma } from '@shared/utils/index.js';
 import type { User, UserSession, StravaTokenResponse } from '@shared/types/index.js';
 import { AppError } from '@shared/middleware/index.js';
 import { HttpStatus } from '@shared/types/index.js';
 
 export class AuthService {
-  private userStorage = new JsonStorage<User>('users.json');
-
   getAuthUrl(state?: string): string {
     const params = new URLSearchParams({
       client_id: config.strava.clientId,
@@ -65,34 +63,40 @@ export class AuthService {
   private async saveUser(tokenResponse: StravaTokenResponse): Promise<User> {
     const { athlete, access_token, refresh_token, expires_at } = tokenResponse;
 
-    const existingUser = await this.userStorage.findById(athlete.id, 'stravaId');
+    const dbUser = await prisma.user.upsert({
+      where: { stravaId: athlete.id },
+      update: {
+        username: athlete.username,
+        firstname: athlete.firstname,
+        lastname: athlete.lastname,
+        profile: athlete.profile,
+        profileMedium: athlete.profile_medium,
+        accessToken: access_token,
+        refreshToken: refresh_token,
+        tokenExpiresAt: BigInt(expires_at),
+      },
+      create: {
+        stravaId: athlete.id,
+        username: athlete.username,
+        firstname: athlete.firstname,
+        lastname: athlete.lastname,
+        profile: athlete.profile,
+        profileMedium: athlete.profile_medium,
+        accessToken: access_token,
+        refreshToken: refresh_token,
+        tokenExpiresAt: BigInt(expires_at),
+      },
+    });
 
-    const userData: User = {
-      id: existingUser?.id ?? Date.now(),
-      stravaId: athlete.id,
-      username: athlete.username,
-      firstname: athlete.firstname,
-      lastname: athlete.lastname,
-      profile: athlete.profile,
-      profileMedium: athlete.profile_medium,
-      accessToken: access_token,
-      refreshToken: refresh_token,
-      tokenExpiresAt: expires_at,
-      createdAt: existingUser?.createdAt ?? new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    if (existingUser) {
-      await this.userStorage.update(existingUser.id, userData);
-    } else {
-      await this.userStorage.create(userData);
-    }
-
-    return userData;
+    return this.toUserModel(dbUser);
   }
 
   async getUserByStravaId(stravaId: number): Promise<User | null> {
-    return await this.userStorage.findById(stravaId, 'stravaId');
+    const dbUser = await prisma.user.findUnique({
+      where: { stravaId },
+    });
+
+    return dbUser ? this.toUserModel(dbUser) : null;
   }
 
   async ensureValidToken(user: User): Promise<string> {
@@ -109,7 +113,15 @@ export class AuthService {
   }
 
   async deleteUser(userId: number): Promise<boolean> {
-    return await this.userStorage.delete(userId);
+    try {
+      await prisma.user.delete({
+        where: { id: userId },
+      });
+
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   createSession(user: User): UserSession {
@@ -121,6 +133,38 @@ export class AuthService {
       lastname: user.lastname,
       profile: user.profile,
       lastSyncedAt: user.lastSyncedAt,
+    };
+  }
+
+  private toUserModel(dbUser: {
+    id: number;
+    stravaId: number;
+    username: string | null;
+    firstname: string;
+    lastname: string;
+    profile: string;
+    profileMedium: string;
+    accessToken: string;
+    refreshToken: string;
+    tokenExpiresAt: bigint;
+    lastSyncedAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }): User {
+    return {
+      id: dbUser.id,
+      stravaId: dbUser.stravaId,
+      username: dbUser.username || '',
+      firstname: dbUser.firstname,
+      lastname: dbUser.lastname,
+      profile: dbUser.profile,
+      profileMedium: dbUser.profileMedium,
+      accessToken: dbUser.accessToken,
+      refreshToken: dbUser.refreshToken,
+      tokenExpiresAt: Number(dbUser.tokenExpiresAt),
+      lastSyncedAt: dbUser.lastSyncedAt?.toISOString(),
+      createdAt: dbUser.createdAt.toISOString(),
+      updatedAt: dbUser.updatedAt.toISOString(),
     };
   }
 }

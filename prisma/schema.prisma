@@ -1,0 +1,205 @@
+// Prisma Schema for Kompanion
+// Uses PostgreSQL (Neon in production, Docker locally)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model - Athletes using the app
+model User {
+  id              Int      @id @default(autoincrement())
+  stravaId        Int      @unique
+  username        String?
+  firstname       String
+  lastname        String
+  profile         String
+  profileMedium   String
+  accessToken     String
+  refreshToken    String
+  tokenExpiresAt  BigInt
+  lastSyncedAt    DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  activities      Activity[]
+  achievements    UserAchievement[]
+  quests          UserQuest[]
+  stats           UserStats?
+
+  @@index([stravaId])
+  @@map("users")
+}
+
+// Activity model - Strava activities
+model Activity {
+  id                  BigInt   @id
+  userId              Int
+  name                String
+  type                String
+  sportType           String
+  distance            Float
+  movingTime          Int
+  elapsedTime         Int
+  totalElevationGain  Float
+  startDate           DateTime
+  startDateLocal      DateTime
+  averageSpeed        Float
+  maxSpeed            Float
+  averageWatts        Float?
+  kilojoules          Float?
+  averageHeartrate    Float?
+  maxHeartrate        Float?
+  elevHigh            Float?
+  elevLow             Float?
+  kudosCount          Int      @default(0)
+  achievementCount    Int      @default(0)
+  prCount             Int      @default(0)
+  summaryPolyline     String?
+  timezone            String
+  manual              Boolean  @default(false)
+  trainer             Boolean  @default(false)
+  createdAt           DateTime @default(now())
+
+  // Relations
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([startDate])
+  @@index([type])
+  @@map("activities")
+}
+
+// Achievement template - Defines all possible achievements
+model Achievement {
+  id              String   @id
+  name            String
+  description     String
+  icon            String
+  rarity          String   // common, rare, epic, legendary
+  requirementType String   // distance, elevation, activities, speed, streak
+  requirementValue Float
+  activityType    String?
+  isSecret        Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  // Relations
+  unlockedBy      UserAchievement[]
+
+  @@map("achievements")
+}
+
+// User achievements - Tracks which achievements users have unlocked
+model UserAchievement {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  achievementId String
+  unlockedAt    DateTime @default(now())
+
+  // Relations
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement   Achievement @relation(fields: [achievementId], references: [id])
+
+  @@unique([userId, achievementId])
+  @@index([userId])
+  @@map("user_achievements")
+}
+
+// Quest template - Defines quest structure
+model Quest {
+  id          String   @id
+  name        String
+  description String
+  type        String   // weekly, monthly, special
+  startDate   DateTime
+  endDate     DateTime
+  rewardXp    Int
+  rewardAchievements Json? // Array of achievement IDs
+  createdAt   DateTime @default(now())
+
+  // Relations
+  objectives  QuestObjective[]
+  userQuests  UserQuest[]
+
+  @@map("quests")
+}
+
+// Quest objectives - Individual objectives within a quest
+model QuestObjective {
+  id           String  @id
+  questId      String
+  description  String
+  type         String  // distance, elevation, activities, time
+  target       Float
+  activityType String?
+
+  // Relations
+  quest        Quest   @relation(fields: [questId], references: [id], onDelete: Cascade)
+
+  @@index([questId])
+  @@map("quest_objectives")
+}
+
+// User quest progress
+model UserQuest {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  questId    String
+  status     String   // active, completed, expired
+  progress   Json     // Stores objective progress as JSON
+  startedAt  DateTime @default(now())
+  completedAt DateTime?
+
+  // Relations
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quest      Quest    @relation(fields: [questId], references: [id])
+
+  @@unique([userId, questId])
+  @@index([userId])
+  @@index([status])
+  @@map("user_quests")
+}
+
+// User stats - Aggregated statistics per user
+model UserStats {
+  id              Int      @id @default(autoincrement())
+  userId          Int      @unique
+  totalDistance   Float    @default(0)
+  totalElevation  Float    @default(0)
+  totalActivities Int      @default(0)
+  totalTime       Int      @default(0)
+  currentStreak   Int      @default(0)
+  longestStreak   Int      @default(0)
+  level           Int      @default(1)
+  xp              Int      @default(0)
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activityTypeStats ActivityTypeStats[]
+
+  @@map("user_stats")
+}
+
+// Activity type statistics - Breakdown by activity type
+model ActivityTypeStats {
+  id              Int       @id @default(autoincrement())
+  userStatsId     Int
+  activityType    String
+  count           Int       @default(0)
+  distance        Float     @default(0)
+  elevation       Float     @default(0)
+  time            Int       @default(0)
+
+  // Relations
+  userStats       UserStats @relation(fields: [userStatsId], references: [id], onDelete: Cascade)
+
+  @@unique([userStatsId, activityType])
+  @@index([userStatsId])
+  @@map("activity_type_stats")
+}

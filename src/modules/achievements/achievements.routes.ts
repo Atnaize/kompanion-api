@@ -6,5 +6,6 @@ const router = Router();
 const achievementsController = new AchievementsController();
 
 router.get('/', requireAuth, achievementsController.list);
+router.post('/:achievementId/redeem', requireAuth, achievementsController.redeem);
 
 export default router;

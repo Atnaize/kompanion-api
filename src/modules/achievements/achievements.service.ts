@@ -1,133 +1,213 @@
+import { prisma } from '@shared/utils/index.js';
 import { StatsService } from '../stats/stats.service.js';
 import type { Achievement, UserStats } from '@shared/types/index.js';
 
 export class AchievementsService {
   private statsService = new StatsService();
 
-  private readonly ACHIEVEMENTS: Omit<Achievement, 'unlockedAt'>[] = [
-    {
-      id: 'first_steps',
-      name: 'First Steps',
-      description: 'Complete your first activity',
-      icon: '👟',
-      rarity: 'common',
-      requirement: { type: 'activities', value: 1 },
-    },
-    {
-      id: 'getting_started',
-      name: 'Getting Started',
-      description: 'Complete 10 activities',
-      icon: '🎯',
-      rarity: 'common',
-      requirement: { type: 'activities', value: 10 },
-    },
-    {
-      id: 'dedicated',
-      name: 'Dedicated',
-      description: 'Complete 50 activities',
-      icon: '💪',
-      rarity: 'rare',
-      requirement: { type: 'activities', value: 50 },
-    },
-    {
-      id: 'marathon_runner',
-      name: 'Marathon Runner',
-      description: 'Run a total distance of 42.2km',
-      icon: '🏃',
-      rarity: 'rare',
-      requirement: { type: 'distance', value: 42200, activityType: 'Run' },
-    },
-    {
-      id: 'century_cyclist',
-      name: 'Century Cyclist',
-      description: 'Ride 100km in total',
-      icon: '🚴',
-      rarity: 'rare',
-      requirement: { type: 'distance', value: 100000, activityType: 'Ride' },
-    },
-    {
-      id: 'climbing_goat',
-      name: 'Climbing Goat',
-      description: 'Climb 1000m in elevation',
-      icon: '⛰️',
-      rarity: 'epic',
-      requirement: { type: 'elevation', value: 1000 },
-    },
-    {
-      id: 'everest',
-      name: 'Everest',
-      description: 'Climb 8848m in total elevation',
-      icon: '🏔️',
-      rarity: 'legendary',
-      requirement: { type: 'elevation', value: 8848 },
-    },
-    {
-      id: 'streak_week',
-      name: 'Week Warrior',
-      description: 'Maintain a 7-day streak',
-      icon: '🔥',
-      rarity: 'rare',
-      requirement: { type: 'streak', value: 7 },
-    },
-    {
-      id: 'streak_month',
-      name: 'Month Master',
-      description: 'Maintain a 30-day streak',
-      icon: '🔥',
-      rarity: 'epic',
-      requirement: { type: 'streak', value: 30 },
-    },
-    {
-      id: 'speed_demon',
-      name: 'Speed Demon',
-      description: 'Reach an average speed of 30 km/h',
-      icon: '⚡',
-      rarity: 'epic',
-      requirement: { type: 'speed', value: 8.33 },
-    },
-  ];
+  /**
+   * Get all achievements for a user with their status
+   * Returns: locked, redeemable, or unlocked
+   */
+  async getUserAchievements(
+    userId: number
+  ): Promise<Array<Achievement & { isRedeemable: boolean }>> {
+    // Get all achievements from database (seeded data)
+    const allAchievements = await prisma.achievement.findMany({
+      orderBy: [{ rarity: 'asc' }, { requirementValue: 'asc' }],
+    });
 
-  async getUserAchievements(userId: number): Promise<Achievement[]> {
-    const stats = await this.statsService.calculateUserStats(userId);
+    // Get user's unlocked achievements
+    const unlockedAchievements = await prisma.userAchievement.findMany({
+      where: { userId },
+      select: {
+        achievementId: true,
+        unlockedAt: true,
+      },
+    });
 
-    return this.ACHIEVEMENTS.map((achievement) => {
-      const unlocked = this.isAchievementUnlocked(achievement, stats);
+    const unlockedMap = new Map(
+      unlockedAchievements.map((ua) => [ua.achievementId, ua.unlockedAt])
+    );
+
+    // Get user stats to check which are redeemable
+    const stats = await this.statsService.getUserStats(userId);
+
+    // If no stats yet, calculate them
+    const userStats = stats || (await this.statsService.calculateUserStats(userId));
+
+    // Map to Achievement type with status
+    return allAchievements.map((achievement) => {
+      const isUnlocked = unlockedMap.has(achievement.id);
+      const meetsRequirements = this.isAchievementUnlocked(achievement, userStats);
+      const isRedeemable = !isUnlocked && meetsRequirements;
+      const isSecret = achievement.isSecret && !isUnlocked;
 
       return {
-        ...achievement,
-        unlockedAt: unlocked ? new Date().toISOString() : undefined,
+        id: achievement.id,
+        name: isSecret ? 'Secret Achievement' : achievement.name,
+        description: isSecret ? 'Complete secret challenges to unlock' : achievement.description,
+        icon: isSecret ? '❓' : achievement.icon,
+        rarity: achievement.rarity as Achievement['rarity'],
+        requirement: {
+          type: achievement.requirementType as Achievement['requirement']['type'],
+          value: achievement.requirementValue,
+          activityType: achievement.activityType || undefined,
+        },
+        unlockedAt: isUnlocked ? unlockedMap.get(achievement.id)!.toISOString() : undefined,
+        isRedeemable,
+        isSecret: achievement.isSecret,
       };
     });
   }
 
+  /**
+   * Get only redeemable achievements (not yet unlocked but requirements met)
+   */
+  async getRedeemableAchievements(userId: number): Promise<Achievement[]> {
+    const allAchievements = await this.getUserAchievements(userId);
+
+    // Get user stats
+    const stats = await this.statsService.getUserStats(userId);
+    const userStats = stats || (await this.statsService.calculateUserStats(userId));
+
+    return allAchievements.filter((achievement) => {
+      const isUnlocked = !!achievement.unlockedAt;
+      if (isUnlocked) {
+        return false; // Already unlocked
+      }
+
+      // Check if meets requirements
+      const dbAchievement = {
+        requirementType: achievement.requirement.type,
+        requirementValue: achievement.requirement.value,
+        activityType: achievement.requirement.activityType || null,
+      };
+
+      return this.isAchievementUnlocked(dbAchievement, userStats);
+    });
+  }
+
+  /**
+   * Redeem (unlock) an achievement manually
+   * Returns the newly unlocked achievement
+   */
+  async redeemAchievement(userId: number, achievementId: string): Promise<Achievement> {
+    // Check if achievement exists
+    const achievement = await prisma.achievement.findUnique({
+      where: { id: achievementId },
+    });
+
+    if (!achievement) {
+      throw new Error('Achievement not found');
+    }
+
+    // Check if already unlocked
+    const existing = await prisma.userAchievement.findUnique({
+      where: {
+        userId_achievementId: {
+          userId,
+          achievementId,
+        },
+      },
+    });
+
+    if (existing) {
+      throw new Error('Achievement already unlocked');
+    }
+
+    // Check if user meets requirements
+    const stats = await this.statsService.getUserStats(userId);
+    const userStats = stats || (await this.statsService.calculateUserStats(userId));
+
+    if (!this.isAchievementUnlocked(achievement, userStats)) {
+      throw new Error('Achievement requirements not met');
+    }
+
+    // Grant achievement
+    const userAchievement = await prisma.userAchievement.create({
+      data: {
+        userId,
+        achievementId,
+      },
+    });
+
+    return {
+      id: achievement.id,
+      name: achievement.name,
+      description: achievement.description,
+      icon: achievement.icon,
+      rarity: achievement.rarity as Achievement['rarity'],
+      requirement: {
+        type: achievement.requirementType as Achievement['requirement']['type'],
+        value: achievement.requirementValue,
+        activityType: achievement.activityType || undefined,
+      },
+      unlockedAt: userAchievement.unlockedAt.toISOString(),
+      isSecret: achievement.isSecret,
+    };
+  }
+
+  /**
+   * Get only unlocked achievements for a user
+   */
+  async getUnlockedAchievements(userId: number): Promise<Achievement[]> {
+    const unlocked = await prisma.userAchievement.findMany({
+      where: { userId },
+      include: { achievement: true },
+      orderBy: { unlockedAt: 'desc' },
+    });
+
+    return unlocked.map((ua) => ({
+      id: ua.achievement.id,
+      name: ua.achievement.name,
+      description: ua.achievement.description,
+      icon: ua.achievement.icon,
+      rarity: ua.achievement.rarity as Achievement['rarity'],
+      requirement: {
+        type: ua.achievement.requirementType as Achievement['requirement']['type'],
+        value: ua.achievement.requirementValue,
+        activityType: ua.achievement.activityType || undefined,
+      },
+      unlockedAt: ua.unlockedAt.toISOString(),
+    }));
+  }
+
+  /**
+   * Check if achievement requirements are met
+   */
   private isAchievementUnlocked(
-    achievement: Omit<Achievement, 'unlockedAt'>,
+    achievement: {
+      requirementType: string;
+      requirementValue: number;
+      activityType: string | null;
+    },
     stats: UserStats
   ): boolean {
-    const { requirement } = achievement;
-
-    switch (requirement.type) {
+    switch (achievement.requirementType) {
       case 'activities':
-        return stats.totalActivities >= requirement.value;
+        return stats.totalActivities >= achievement.requirementValue;
 
       case 'distance':
-        if (requirement.activityType) {
-          const activityStats = stats.byActivityType[requirement.activityType];
-          return activityStats ? activityStats.distance >= requirement.value : false;
+        if (achievement.activityType) {
+          const activityStats = stats.byActivityType[achievement.activityType];
+          return activityStats ? activityStats.distance >= achievement.requirementValue : false;
         }
-        return stats.totalDistance >= requirement.value;
+        return stats.totalDistance >= achievement.requirementValue;
 
       case 'elevation':
-        if (requirement.activityType) {
-          const activityStats = stats.byActivityType[requirement.activityType];
-          return activityStats ? activityStats.elevation >= requirement.value : false;
+        if (achievement.activityType) {
+          const activityStats = stats.byActivityType[achievement.activityType];
+          return activityStats ? activityStats.elevation >= achievement.requirementValue : false;
         }
-        return stats.totalElevation >= requirement.value;
+        return stats.totalElevation >= achievement.requirementValue;
 
       case 'streak':
-        return stats.currentStreak >= requirement.value;
+        return stats.currentStreak >= achievement.requirementValue;
 
       case 'speed':
+        // TODO: Implement speed achievements
+        // Need to query activities for max average speed
         return false;
 
       default:

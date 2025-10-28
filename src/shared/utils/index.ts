@@ -1,1 +1,1 @@
-export * from './storage.js';
+export { prisma } from './prisma.js';

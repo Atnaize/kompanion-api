@@ -1,20 +1,13 @@
 import axios from 'axios';
 import { config } from '@config/env.js';
-import { JsonStorage } from '@shared/utils/index.js';
+import { prisma } from '@shared/utils/index.js';
 import { AuthService } from '../auth/auth.service.js';
 import type { StravaActivity, User } from '@shared/types/index.js';
 import { AppError } from '@shared/middleware/index.js';
 import { HttpStatus } from '@shared/types/index.js';
 
-interface StoredActivity extends StravaActivity {
-  userId: number;
-  syncedAt: string;
-}
-
 export class ActivitiesService {
-  private activityStorage = new JsonStorage<StoredActivity>('activities.json');
   private authService = new AuthService();
-  private userStorage = new JsonStorage<User>('users.json');
 
   async fetchActivities(
     user: User,
@@ -64,6 +57,7 @@ export class ActivitiesService {
     const perPage = 100;
     let hasMore = true;
 
+    // Fetch all activities from Strava
     while (hasMore) {
       const activities = await this.fetchActivities(user, page, perPage, after);
 
@@ -80,27 +74,40 @@ export class ActivitiesService {
       }
     }
 
-    const storedActivities: StoredActivity[] = allActivities.map((activity) => ({
-      ...activity,
-      userId: user.id,
-      syncedAt: new Date().toISOString(),
-    }));
-
-    const existingActivities = await this.activityStorage.read();
-    const userActivities = existingActivities.filter((a) => a.userId === user.id);
-
-    const newActivities = storedActivities.filter(
-      (newActivity) => !userActivities.some((existing) => existing.id === newActivity.id)
-    );
-
-    for (const activity of newActivities) {
-      await this.activityStorage.create(activity);
-    }
-
-    await this.userStorage.update(user.id, {
-      ...user,
-      lastSyncedAt: new Date().toISOString(),
+    // Get existing activity IDs for this user
+    const existingActivityIds = await prisma.activity.findMany({
+      where: { userId: user.id },
+      select: { id: true },
     });
+
+    const existingIds = new Set(existingActivityIds.map((a) => a.id.toString()));
+
+    // Filter to only new activities
+    const newActivities = allActivities.filter((a) => !existingIds.has(a.id.toString()));
+
+    // Bulk insert new activities using transaction
+    if (newActivities.length > 0) {
+      await prisma.$transaction(async (tx) => {
+        // Insert activities
+        for (const activity of newActivities) {
+          await tx.activity.create({
+            data: this.mapStravaActivityToDb(activity, user.id),
+          });
+        }
+
+        // Update user's lastSyncedAt
+        await tx.user.update({
+          where: { id: user.id },
+          data: { lastSyncedAt: new Date() },
+        });
+      });
+    } else {
+      // Just update lastSyncedAt even if no new activities
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { lastSyncedAt: new Date() },
+      });
+    }
 
     return {
       synced: newActivities.length,
@@ -130,6 +137,7 @@ export class ActivitiesService {
     let lastEmittedCount = 0;
     const emitInterval = 20;
 
+    // Fetch with progress tracking
     while (hasMore) {
       const activities = await this.fetchActivities(user, page, perPage, after);
 
@@ -148,7 +156,7 @@ export class ActivitiesService {
           });
         }
 
-        // Emit final count if not at a milestone
+        // Emit final count
         if (allActivities.length > lastEmittedCount) {
           onProgress({
             type: 'fetching',
@@ -166,38 +174,48 @@ export class ActivitiesService {
       }
     }
 
-    const storedActivities: StoredActivity[] = allActivities.map((activity) => ({
-      ...activity,
-      userId: user.id,
-      syncedAt: new Date().toISOString(),
-    }));
-
-    const existingActivities = await this.activityStorage.read();
-    const userActivities = existingActivities.filter((a) => a.userId === user.id);
-
-    const newActivities = storedActivities.filter(
-      (newActivity) => !userActivities.some((existing) => existing.id === newActivity.id)
-    );
-
-    let saved = 0;
-    for (const activity of newActivities) {
-      await this.activityStorage.create(activity);
-      saved++;
-
-      if (saved % 10 === 0 || saved === newActivities.length) {
-        onProgress({
-          type: 'saving',
-          current: saved,
-          total: newActivities.length,
-          message: `Saving activities... ${saved}/${newActivities.length}`,
-        });
-      }
-    }
-
-    await this.userStorage.update(user.id, {
-      ...user,
-      lastSyncedAt: new Date().toISOString(),
+    // Get existing activity IDs
+    const existingActivityIds = await prisma.activity.findMany({
+      where: { userId: user.id },
+      select: { id: true },
     });
+
+    const existingIds = new Set(existingActivityIds.map((a) => a.id.toString()));
+    const newActivities = allActivities.filter((a) => !existingIds.has(a.id.toString()));
+
+    // Save with progress tracking
+    if (newActivities.length > 0) {
+      let saved = 0;
+
+      await prisma.$transaction(async (tx) => {
+        for (const activity of newActivities) {
+          await tx.activity.create({
+            data: this.mapStravaActivityToDb(activity, user.id),
+          });
+          saved++;
+
+          if (saved % 10 === 0 || saved === newActivities.length) {
+            onProgress({
+              type: 'saving',
+              current: saved,
+              total: newActivities.length,
+              message: `Saving activities... ${saved}/${newActivities.length}`,
+            });
+          }
+        }
+
+        // Update user's lastSyncedAt
+        await tx.user.update({
+          where: { id: user.id },
+          data: { lastSyncedAt: new Date() },
+        });
+      });
+    } else {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { lastSyncedAt: new Date() },
+      });
+    }
 
     return {
       synced: newActivities.length,
@@ -206,18 +224,174 @@ export class ActivitiesService {
     };
   }
 
-  async getUserActivities(userId: number): Promise<StoredActivity[]> {
-    const allActivities = await this.activityStorage.read();
-    return allActivities.filter((activity) => activity.userId === userId);
+  async getUserActivities(userId: number): Promise<StravaActivity[]> {
+    const activities = await prisma.activity.findMany({
+      where: { userId },
+      orderBy: { startDate: 'desc' },
+    });
+
+    return activities.map((activity) => this.mapDbActivityToStrava(activity));
   }
 
-  async getActivityById(activityId: number, userId: number): Promise<StoredActivity | null> {
-    const activity = await this.activityStorage.findById(activityId);
+  async getActivityById(activityId: number, userId: number): Promise<StravaActivity | null> {
+    const activity = await prisma.activity.findFirst({
+      where: {
+        id: BigInt(activityId),
+        userId,
+      },
+    });
 
-    if (!activity || activity.userId !== userId) {
-      return null;
-    }
+    return activity ? this.mapDbActivityToStrava(activity) : null;
+  }
 
-    return activity;
+  /**
+   * Map Strava API activity to database model
+   */
+  private mapStravaActivityToDb(
+    activity: StravaActivity,
+    userId: number
+  ): {
+    id: bigint;
+    userId: number;
+    name: string;
+    type: string;
+    sportType: string;
+    distance: number;
+    movingTime: number;
+    elapsedTime: number;
+    totalElevationGain: number;
+    startDate: Date;
+    startDateLocal: Date;
+    averageSpeed: number;
+    maxSpeed: number;
+    averageWatts: number | undefined;
+    kilojoules: number | undefined;
+    averageHeartrate: number | undefined;
+    maxHeartrate: number | undefined;
+    elevHigh: number | undefined;
+    elevLow: number | undefined;
+    kudosCount: number;
+    achievementCount: number;
+    prCount: number;
+    summaryPolyline: string | null;
+    timezone: string;
+    manual: boolean;
+    trainer: boolean;
+  } {
+    return {
+      id: BigInt(activity.id),
+      userId,
+      name: activity.name,
+      type: activity.type,
+      sportType: activity.sport_type,
+      distance: activity.distance,
+      movingTime: activity.moving_time,
+      elapsedTime: activity.elapsed_time,
+      totalElevationGain: activity.total_elevation_gain,
+      startDate: new Date(activity.start_date),
+      startDateLocal: new Date(activity.start_date_local),
+      averageSpeed: activity.average_speed,
+      maxSpeed: activity.max_speed,
+      averageWatts: activity.average_watts,
+      kilojoules: activity.kilojoules,
+      averageHeartrate: activity.average_heartrate,
+      maxHeartrate: activity.max_heartrate,
+      elevHigh: activity.elev_high,
+      elevLow: activity.elev_low,
+      kudosCount: activity.kudos_count,
+      achievementCount: activity.achievement_count,
+      prCount: activity.pr_count,
+      summaryPolyline: activity.map?.summary_polyline || null,
+      timezone: activity.timezone,
+      manual: activity.manual,
+      trainer: activity.trainer,
+    };
+  }
+
+  /**
+   * Map database activity to Strava API format
+   */
+  private mapDbActivityToStrava(activity: {
+    id: bigint;
+    userId: number;
+    name: string;
+    type: string;
+    sportType: string;
+    distance: number;
+    movingTime: number;
+    elapsedTime: number;
+    totalElevationGain: number;
+    startDate: Date;
+    startDateLocal: Date;
+    averageSpeed: number;
+    maxSpeed: number;
+    averageWatts: number | null;
+    kilojoules: number | null;
+    averageHeartrate: number | null;
+    maxHeartrate: number | null;
+    elevHigh: number | null;
+    elevLow: number | null;
+    kudosCount: number;
+    achievementCount: number;
+    prCount: number;
+    summaryPolyline: string | null;
+    timezone: string;
+    manual: boolean;
+    trainer: boolean;
+    createdAt: Date;
+  }): StravaActivity {
+    return {
+      id: Number(activity.id),
+      resource_state: 2,
+      external_id: '',
+      upload_id: 0,
+      athlete: {
+        id: activity.userId,
+        resource_state: 1,
+      },
+      name: activity.name,
+      distance: activity.distance,
+      moving_time: activity.movingTime,
+      elapsed_time: activity.elapsedTime,
+      total_elevation_gain: activity.totalElevationGain,
+      type: activity.type as StravaActivity['type'],
+      sport_type: activity.sportType,
+      start_date: activity.startDate.toISOString(),
+      start_date_local: activity.startDateLocal.toISOString(),
+      timezone: activity.timezone,
+      utc_offset: 0,
+      achievement_count: activity.achievementCount,
+      kudos_count: activity.kudosCount,
+      comment_count: 0,
+      athlete_count: 1,
+      photo_count: 0,
+      map: {
+        id: '',
+        summary_polyline: activity.summaryPolyline || '',
+        resource_state: 2,
+      },
+      trainer: activity.trainer,
+      commute: false,
+      manual: activity.manual,
+      private: false,
+      visibility: 'everyone',
+      flagged: false,
+      gear_id: '',
+      average_speed: activity.averageSpeed,
+      max_speed: activity.maxSpeed,
+      average_watts: activity.averageWatts || undefined,
+      kilojoules: activity.kilojoules || undefined,
+      device_watts: false,
+      has_heartrate: !!activity.averageHeartrate,
+      average_heartrate: activity.averageHeartrate || undefined,
+      max_heartrate: activity.maxHeartrate || undefined,
+      heartrate_opt_out: false,
+      display_hide_heartrate_option: false,
+      elev_high: activity.elevHigh || undefined,
+      elev_low: activity.elevLow || undefined,
+      pr_count: activity.prCount,
+      total_photo_count: 0,
+      has_kudoed: false,
+    };
   }
 }
