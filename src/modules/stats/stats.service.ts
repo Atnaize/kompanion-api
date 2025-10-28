@@ -59,7 +59,6 @@ export class StatsService {
     // Fast early progression, exponential slowdown
     const level = Math.floor(Math.pow(xp / 200, 0.4)) + 1;
 
-
     return {
       userId,
       totalDistance: Math.round(totalDistance),
