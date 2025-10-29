@@ -58,7 +58,7 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
   {
     id: 'around-the-world',
     name: 'Around the World',
-    description: "Cover a total of 40,075 kilometers (Earth's circumference)",
+    description: "Cover a total of 40,075 kilometers",
     icon: '🚀',
     rarity: 'legendary',
     requirementType: 'distance',
@@ -87,7 +87,7 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
   {
     id: 'everest-climber',
     name: 'Everest Climber',
-    description: 'Climb a total of 8,849 meters (Mount Everest height)',
+    description: 'Climb a total of 8,849 meters',
     icon: '🗻',
     rarity: 'epic',
     requirementType: 'elevation',
@@ -125,7 +125,7 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
   {
     id: 'unstoppable',
     name: 'Unstoppable',
-    description: 'Complete 365 activities (one per day for a year)',
+    description: 'Complete 365 activities',
     icon: '⚡',
     rarity: 'legendary',
     requirementType: 'activities',
@@ -187,7 +187,7 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
   {
     id: 'secret-meaning-of-life',
     name: 'The Answer',
-    description: 'Complete 42 activities (the meaning of life, the universe, and everything)',
+    description: 'Complete 42 activities',
     icon: '🤖',
     rarity: 'epic',
     requirementType: 'activities',
