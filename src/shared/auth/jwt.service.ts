@@ -38,21 +38,6 @@ export class JwtService {
       return null;
     }
   }
-
-  /**
-   * Get cookie configuration for JWT
-   */
-  getCookieOptions() {
-    const isProduction = config.nodeEnv === 'production';
-
-    return {
-      httpOnly: true, // Prevents JavaScript access (XSS protection)
-      secure: isProduction, // HTTPS only in production
-      sameSite: (isProduction ? 'none' : 'lax') as 'none' | 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in milliseconds
-      path: '/',
-    };
-  }
 }
 
 export const jwtService = new JwtService();

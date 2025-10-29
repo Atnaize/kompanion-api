@@ -8,7 +8,6 @@ const authController = new AuthController();
 router.get('/login', authController.login);
 router.get('/callback', authController.callback);
 router.get('/me', requireAuth, authController.me);
-router.post('/logout', requireAuth, authController.logout);
 router.delete('/account', requireAuth, authController.deleteAccount);
 
 export default router;

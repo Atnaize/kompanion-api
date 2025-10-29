@@ -52,10 +52,9 @@ export class AuthController {
         stravaId: user.stravaId,
       });
 
-      // Set JWT as httpOnly cookie
-      res.cookie('auth_token', token, jwtService.getCookieOptions());
-
-      res.redirect(`${redirectUri}/dashboard?login=success`);
+      // Redirect to login page with token
+      // LoginPage will extract token and store in localStorage
+      res.redirect(`${redirectUri}/login?token=${token}`);
     } catch (error) {
       console.error('Auth callback error:', error);
       const redirectUri =
@@ -130,25 +129,6 @@ export class AuthController {
     }
   };
 
-  logout = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      // Clear the auth cookie
-      res.clearCookie('auth_token', {
-        httpOnly: true,
-        secure: config.nodeEnv === 'production',
-        sameSite: config.nodeEnv === 'production' ? 'none' : 'lax',
-        path: '/',
-      });
-
-      res.json({
-        success: true,
-        message: 'Logged out successfully',
-      });
-    } catch (error) {
-      next(error);
-    }
-  };
-
   deleteAccount = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       if (!req.userId) {
@@ -169,14 +149,7 @@ export class AuthController {
         return;
       }
 
-      // Clear the auth cookie
-      res.clearCookie('auth_token', {
-        httpOnly: true,
-        secure: config.nodeEnv === 'production',
-        sameSite: config.nodeEnv === 'production' ? 'none' : 'lax',
-        path: '/',
-      });
-
+      // With localStorage/Bearer token auth, token cleanup is handled client-side
       res.json({
         success: true,
         message: 'Account deleted successfully',

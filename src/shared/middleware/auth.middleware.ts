@@ -12,7 +12,18 @@ declare global {
 }
 
 export const requireAuth = (req: Request, res: Response, next: NextFunction): void => {
-  const token = req.cookies?.auth_token;
+  let token: string | undefined;
+
+  // Try to get token from Authorization header first
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7); // Remove 'Bearer ' prefix
+  }
+
+  // Fallback to query parameter (for EventSource which doesn't support custom headers)
+  if (!token && req.query.token && typeof req.query.token === 'string') {
+    token = req.query.token;
+  }
 
   if (!token) {
     res.status(HttpStatus.UNAUTHORIZED).json({
@@ -40,9 +51,10 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction): vo
 };
 
 export const optionalAuth = (req: Request, _res: Response, next: NextFunction): void => {
-  const token = req.cookies?.auth_token;
+  const authHeader = req.headers.authorization;
 
-  if (token) {
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
     const payload = jwtService.verifyToken(token);
     if (payload) {
       req.userId = payload.userId;

@@ -1,6 +1,5 @@
 import express from 'express';
 import cors from 'cors';
-import cookieParser from 'cookie-parser';
 import { config } from './config/env.js';
 import { errorHandler } from './shared/middleware/index.js';
 import { authRoutes } from './modules/auth/index.js';
@@ -37,7 +36,6 @@ app.use(
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(cookieParser());
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
