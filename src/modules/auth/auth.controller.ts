@@ -3,6 +3,7 @@ import { AuthService } from './auth.service.js';
 import { HttpStatus } from '@shared/types/index.js';
 import { config } from '@config/env.js';
 import { jwtService } from '@shared/auth/jwt.service.js';
+import { refreshTokenService } from '@shared/auth/refresh-token.service.js';
 import { prisma, validateUrl, validateString } from '@shared/utils/index.js';
 
 export class AuthController {
@@ -53,15 +54,20 @@ export class AuthController {
 
       const user = await this.authService.handleCallback(code);
 
-      // Generate JWT token
-      const token = jwtService.generateToken({
+      // Generate access token (15 minutes)
+      const accessToken = jwtService.generateAccessToken({
         userId: user.id,
         stravaId: user.stravaId,
       });
 
-      // Redirect to login page with token
-      // LoginPage will extract token and store in localStorage
-      res.redirect(`${redirectUri}/login?token=${token}`);
+      // Generate refresh token (90 days)
+      const refreshTokenData = await refreshTokenService.createRefreshToken(user.id);
+
+      // Redirect to login page with both tokens
+      // LoginPage will extract tokens and store in localStorage
+      res.redirect(
+        `${redirectUri}/login?accessToken=${accessToken}&refreshToken=${refreshTokenData.token}`
+      );
     } catch (error) {
       console.error('Auth callback error:', error);
       const redirectUri =
@@ -142,6 +148,89 @@ export class AuthController {
     }
   };
 
+  refresh = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { refreshToken } = req.body;
+
+      // Validate refresh token input
+      const validation = validateString(refreshToken, {
+        minLength: 1,
+        maxLength: 200,
+        fieldName: 'Refresh token',
+      });
+
+      if (!validation.isValid || typeof refreshToken !== 'string') {
+        res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          error: 'Invalid refresh token',
+        });
+        return;
+      }
+
+      // Rotate refresh token (revoke old, create new)
+      const newRefreshToken = await refreshTokenService.rotateRefreshToken(refreshToken);
+
+      if (!newRefreshToken) {
+        res.status(HttpStatus.UNAUTHORIZED).json({
+          success: false,
+          error: 'Invalid or expired refresh token',
+        });
+        return;
+      }
+
+      // Get user data
+      const user = await prisma.user.findUnique({
+        where: { id: newRefreshToken.userId },
+        select: {
+          id: true,
+          stravaId: true,
+        },
+      });
+
+      if (!user) {
+        res.status(HttpStatus.NOT_FOUND).json({
+          success: false,
+          error: 'User not found',
+        });
+        return;
+      }
+
+      // Generate new access token
+      const accessToken = jwtService.generateAccessToken({
+        userId: user.id,
+        stravaId: user.stravaId,
+      });
+
+      res.json({
+        success: true,
+        data: {
+          accessToken,
+          refreshToken: newRefreshToken.token,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  logout = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { refreshToken } = req.body;
+
+      if (refreshToken && typeof refreshToken === 'string') {
+        // Revoke the refresh token
+        await refreshTokenService.revokeRefreshToken(refreshToken);
+      }
+
+      res.json({
+        success: true,
+        message: 'Logged out successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   deleteAccount = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       if (!req.userId) {
@@ -151,6 +240,9 @@ export class AuthController {
         });
         return;
       }
+
+      // Revoke all user's refresh tokens
+      await refreshTokenService.revokeAllUserTokens(req.userId);
 
       const deleted = await this.authService.deleteUser(req.userId);
 
@@ -162,7 +254,6 @@ export class AuthController {
         return;
       }
 
-      // With localStorage/Bearer token auth, token cleanup is handled client-side
       res.json({
         success: true,
         message: 'Account deleted successfully',

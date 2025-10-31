@@ -8,19 +8,20 @@ interface JwtPayload {
 
 export class JwtService {
   private readonly secret: string;
-  private readonly expiresIn: number;
+  private readonly accessTokenExpiry: number;
 
   constructor() {
     this.secret = config.session.secret;
-    this.expiresIn = 7 * 24 * 60 * 60; // 7 days in seconds
+    this.accessTokenExpiry = 15 * 60; // 15 minutes in seconds
   }
 
   /**
-   * Generate a JWT token for authenticated user
+   * Generate a short-lived access token (15 minutes)
+   * Used for API authentication
    */
-  generateToken(payload: JwtPayload): string {
+  generateAccessToken(payload: JwtPayload): string {
     const options: SignOptions = {
-      expiresIn: this.expiresIn,
+      expiresIn: this.accessTokenExpiry,
     };
     return jwt.sign(payload, this.secret, options);
   }

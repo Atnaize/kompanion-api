@@ -31,6 +31,7 @@ model User {
   achievements    UserAchievement[]
   quests          UserQuest[]
   stats           UserStats?
+  refreshTokens   RefreshToken[]
 
   @@index([stravaId])
   @@map("users")
@@ -202,4 +203,22 @@ model ActivityTypeStats {
   @@unique([userStatsId, activityType])
   @@index([userStatsId])
   @@map("activity_type_stats")
+}
+
+// JWT Refresh Tokens - For session management
+model RefreshToken {
+  id          String   @id @default(uuid())
+  userId      Int
+  token       String   @unique
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  revokedAt   DateTime?
+
+  // Relations
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
 }
