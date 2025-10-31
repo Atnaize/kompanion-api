@@ -138,10 +138,7 @@ export function validateString(
 /**
  * Validates pagination parameters
  */
-export function validatePagination(params: {
-  page?: unknown;
-  limit?: unknown;
-}): ValidationResult {
+export function validatePagination(params: { page?: unknown; limit?: unknown }): ValidationResult {
   const { page, limit } = params;
 
   if (page !== undefined) {

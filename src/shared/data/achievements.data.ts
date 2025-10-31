@@ -58,7 +58,7 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
   {
     id: 'around-the-world',
     name: 'Around the World',
-    description: "Cover a total of 40,075 kilometers",
+    description: 'Cover a total of 40,075 kilometers',
     icon: '🚀',
     rarity: 'legendary',
     requirementType: 'distance',
