@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { AchievementsService } from './achievements.service.js';
 import { HttpStatus } from '@shared/types/index.js';
+import { validateId } from '@shared/utils/index.js';
 
 export class AchievementsController {
   private achievementsService = new AchievementsService();
@@ -38,10 +39,12 @@ export class AchievementsController {
 
       const { achievementId } = req.params;
 
-      if (!achievementId) {
+      // Validate achievement ID
+      const validation = validateId(achievementId);
+      if (!validation.isValid) {
         res.status(HttpStatus.BAD_REQUEST).json({
           success: false,
-          error: 'Achievement ID is required',
+          error: validation.error || 'Invalid achievement ID',
         });
         return;
       }

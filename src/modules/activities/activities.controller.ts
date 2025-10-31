@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { ActivitiesService } from './activities.service.js';
 import { AuthService } from '../auth/auth.service.js';
 import { HttpStatus } from '@shared/types/index.js';
+import { validateNumericId } from '@shared/utils/index.js';
 
 export class ActivitiesController {
   private activitiesService = new ActivitiesService();
@@ -128,15 +129,17 @@ export class ActivitiesController {
         return;
       }
 
-      const activityId = parseInt(id, 10);
-
-      if (isNaN(activityId)) {
+      // Validate activity ID
+      const validation = validateNumericId(id);
+      if (!validation.isValid) {
         res.status(HttpStatus.BAD_REQUEST).json({
           success: false,
-          error: 'Invalid activity ID',
+          error: validation.error || 'Invalid activity ID',
         });
         return;
       }
+
+      const activityId = parseInt(id, 10);
 
       const activity = await this.activitiesService.getActivityById(activityId, req.userId);
 

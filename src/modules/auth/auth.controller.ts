@@ -3,7 +3,7 @@ import { AuthService } from './auth.service.js';
 import { HttpStatus } from '@shared/types/index.js';
 import { config } from '@config/env.js';
 import { jwtService } from '@shared/auth/jwt.service.js';
-import { prisma } from '@shared/utils/index.js';
+import { prisma, validateUrl, validateString } from '@shared/utils/index.js';
 
 export class AuthController {
   private authService = new AuthService();
@@ -39,7 +39,14 @@ export class AuthController {
         return;
       }
 
-      if (!code || typeof code !== 'string') {
+      // Validate OAuth code
+      const codeValidation = validateString(code, {
+        minLength: 1,
+        maxLength: 500,
+        fieldName: 'Authorization code',
+      });
+
+      if (!codeValidation.isValid || typeof code !== 'string') {
         res.redirect(`${redirectUri}/login?error=no_code`);
         return;
       }
@@ -71,6 +78,12 @@ export class AuthController {
   };
 
   private isValidRedirectUri(uri: string): boolean {
+    // First validate URL format and security
+    const urlValidation = validateUrl(uri);
+    if (!urlValidation.isValid) {
+      return false;
+    }
+
     try {
       const url = new URL(uri);
       const origin = `${url.protocol}//${url.host}`;
