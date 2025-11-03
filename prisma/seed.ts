@@ -12,7 +12,6 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import { ACHIEVEMENTS } from '../src/shared/data/achievements.data.js';
-import { QUEST_TEMPLATES } from '../src/shared/data/quests.data.js';
 
 const prisma = new PrismaClient();
 
@@ -21,7 +20,6 @@ async function main(): Promise<void> {
 
   try {
     await seedAchievements();
-    await seedQuestTemplates();
 
     console.log('\n✅ Seeding completed successfully!');
   } catch (error) {
@@ -97,94 +95,6 @@ async function seedAchievements(): Promise<void> {
     `   ✅ Achievements: ${added} added, ${updated} updated, ${toRemove.length} removed`
   );
   console.log(`   📈 Total achievements: ${ACHIEVEMENTS.length}`);
-}
-
-/**
- * Seed quest templates - idempotent
- * Creates new templates, updates existing, removes old
- */
-async function seedQuestTemplates(): Promise<void> {
-  console.log('\n🎯 Seeding quest templates...');
-
-  const definedIds = QUEST_TEMPLATES.map((q) => q.id);
-
-  // Get existing quests
-  const existing = await prisma.quest.findMany({
-    include: { objectives: true },
-  });
-  const existingIds = existing.map((q) => q.id);
-
-  // Find quests to remove
-  const toRemove = existingIds.filter((id) => !definedIds.includes(id));
-
-  // Remove obsolete quests (this will cascade delete objectives and user_quests)
-  if (toRemove.length > 0) {
-    console.log(`   🗑️  Removing ${toRemove.length} obsolete quests: ${toRemove.join(', ')}`);
-    await prisma.quest.deleteMany({
-      where: { id: { in: toRemove } },
-    });
-  }
-
-  // Upsert quest templates
-  let added = 0;
-  let updated = 0;
-
-  for (const template of QUEST_TEMPLATES) {
-    const isNew = !existingIds.includes(template.id);
-
-    // Use transaction to ensure quest and objectives are created/updated together
-    await prisma.$transaction(async (tx) => {
-      // Upsert quest
-      await tx.quest.upsert({
-        where: { id: template.id },
-        create: {
-          id: template.id,
-          name: template.name,
-          description: template.description,
-          type: template.type,
-          startDate: new Date('2000-01-01'), // Template - not an actual instance
-          endDate: new Date('2099-12-31'), // Template - not an actual instance
-          rewardXp: template.rewardXp,
-          rewardAchievements: template.rewardAchievements || null,
-        },
-        update: {
-          name: template.name,
-          description: template.description,
-          type: template.type,
-          rewardXp: template.rewardXp,
-          rewardAchievements: template.rewardAchievements || null,
-        },
-      });
-
-      // Delete old objectives
-      await tx.questObjective.deleteMany({
-        where: { questId: template.id },
-      });
-
-      // Create new objectives
-      for (const objective of template.objectives) {
-        await tx.questObjective.create({
-          data: {
-            id: objective.id,
-            questId: template.id,
-            description: objective.description,
-            type: objective.type,
-            target: objective.target,
-            activityType: objective.activityType,
-          },
-        });
-      }
-    });
-
-    if (isNew) {
-      added++;
-    } else {
-      updated++;
-    }
-  }
-
-  console.log(`   ✅ Quests: ${added} added, ${updated} updated, ${toRemove.length} removed`);
-  console.log(`   📈 Total quest templates: ${QUEST_TEMPLATES.length}`);
 }
 
 // Execute seeder
