@@ -34,7 +34,7 @@ export class JwtService {
     try {
       const decoded = jwt.verify(token, this.secret) as JwtPayload;
       return decoded;
-    } catch (error) {
+    } catch {
       // Token is invalid or expired
       return null;
     }

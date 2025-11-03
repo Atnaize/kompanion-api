@@ -55,12 +55,20 @@ export class AuthService {
 
       return response.data;
     } catch (error) {
-      console.error('Token refresh error:', error);
-      throw new AppError(HttpStatus.UNAUTHORIZED, 'Failed to refresh access token');
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 400 || error.response?.status === 401) {
+          throw new AppError(
+            HttpStatus.UNAUTHORIZED,
+            'Strava refresh token is invalid or expired. Please log out and re-authenticate with Strava.'
+          );
+        }
+      }
+
+      throw new AppError(HttpStatus.UNAUTHORIZED, 'Failed to refresh Strava access token');
     }
   }
 
-  private async saveUser(tokenResponse: StravaTokenResponse): Promise<User> {
+  async saveUser(tokenResponse: StravaTokenResponse): Promise<User> {
     const { athlete, access_token, refresh_token, expires_at } = tokenResponse;
 
     const dbUser = await prisma.user.upsert({

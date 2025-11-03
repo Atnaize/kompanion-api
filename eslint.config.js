@@ -50,6 +50,6 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ['dist/', 'node_modules/', 'eslint.config.js', 'prisma.config.ts', 'prisma/'],
+    ignores: ['dist/', 'node_modules/', 'eslint.config.js', 'prisma.config.ts', 'prisma/', 'api/'],
   }
 );

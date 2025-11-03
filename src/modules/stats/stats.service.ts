@@ -42,27 +42,6 @@ export class StatsService {
     const activityDates = activities.map((a) => a.startDateLocal.toISOString());
     const currentStreak = this.calculateStreak(activityDates);
 
-    // Calculate XP and level
-    const distanceKm = totalDistance / 1000;
-    const elevationM = totalElevation;
-    const activityCount = totalActivities || 1;
-
-    // Distance XP (nonlinear reward)
-    const distanceXP = Math.pow(distanceKm, 1.1) * 60;
-
-    // Elevation XP (diminishing returns)
-    const elevationXP = Math.pow(elevationM / 100, 0.9) * 25;
-
-    // Consistency bonus
-    const consistencyXP = activityCount * 30;
-
-    // Anti-spam penalty
-    const avgDistance = distanceKm / activityCount;
-    const spamPenalty = Math.min(1, avgDistance / 3);
-
-    const xp = Math.floor((distanceXP + elevationXP + consistencyXP) * spamPenalty);
-    const level = Math.floor(Math.pow(xp / 200, 0.4)) + 1;
-
     // Get existing longest streak
     const existingStats = await prisma.userStats.findUnique({
       where: { userId },
@@ -81,8 +60,6 @@ export class StatsService {
         totalTime,
         currentStreak,
         longestStreak,
-        level,
-        xp,
       },
       update: {
         totalDistance: Math.round(totalDistance),
@@ -91,8 +68,6 @@ export class StatsService {
         totalTime,
         currentStreak,
         longestStreak,
-        level,
-        xp,
       },
     });
 
@@ -128,8 +103,6 @@ export class StatsService {
       totalTime,
       currentStreak,
       longestStreak,
-      level,
-      xp,
       byActivityType,
     };
   }
@@ -166,8 +139,6 @@ export class StatsService {
       totalTime: stats.totalTime,
       currentStreak: stats.currentStreak,
       longestStreak: stats.longestStreak,
-      level: stats.level,
-      xp: stats.xp,
       byActivityType,
     };
   }

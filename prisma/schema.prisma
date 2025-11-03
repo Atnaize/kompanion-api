@@ -27,11 +27,13 @@ model User {
   updatedAt       DateTime  @updatedAt
 
   // Relations
-  activities      Activity[]
-  achievements    UserAchievement[]
-  quests          UserQuest[]
-  stats           UserStats?
-  refreshTokens   RefreshToken[]
+  activities            Activity[]
+  achievements          UserAchievement[]
+  stats                 UserStats?
+  refreshTokens         RefreshToken[]
+  createdChallenges     Challenge[]
+  challengeParticipants ChallengeParticipant[]
+  challengeActivities   ChallengeActivity[]
 
   @@index([stravaId])
   @@map("users")
@@ -111,61 +113,6 @@ model UserAchievement {
   @@map("user_achievements")
 }
 
-// Quest template - Defines quest structure
-model Quest {
-  id          String   @id
-  name        String
-  description String
-  type        String   // weekly, monthly, special
-  startDate   DateTime
-  endDate     DateTime
-  rewardXp    Int
-  rewardAchievements Json? // Array of achievement IDs
-  createdAt   DateTime @default(now())
-
-  // Relations
-  objectives  QuestObjective[]
-  userQuests  UserQuest[]
-
-  @@map("quests")
-}
-
-// Quest objectives - Individual objectives within a quest
-model QuestObjective {
-  id           String  @id
-  questId      String
-  description  String
-  type         String  // distance, elevation, activities, time
-  target       Float
-  activityType String?
-
-  // Relations
-  quest        Quest   @relation(fields: [questId], references: [id], onDelete: Cascade)
-
-  @@index([questId])
-  @@map("quest_objectives")
-}
-
-// User quest progress
-model UserQuest {
-  id         Int      @id @default(autoincrement())
-  userId     Int
-  questId    String
-  status     String   // active, completed, expired
-  progress   Json     // Stores objective progress as JSON
-  startedAt  DateTime @default(now())
-  completedAt DateTime?
-
-  // Relations
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  quest      Quest    @relation(fields: [questId], references: [id])
-
-  @@unique([userId, questId])
-  @@index([userId])
-  @@index([status])
-  @@map("user_quests")
-}
-
 // User stats - Aggregated statistics per user
 model UserStats {
   id              Int      @id @default(autoincrement())
@@ -176,8 +123,6 @@ model UserStats {
   totalTime       Int      @default(0)
   currentStreak   Int      @default(0)
   longestStreak   Int      @default(0)
-  level           Int      @default(1)
-  xp              Int      @default(0)
   updatedAt       DateTime @updatedAt
 
   // Relations
@@ -221,4 +166,101 @@ model RefreshToken {
   @@index([token])
   @@index([expiresAt])
   @@map("refresh_tokens")
+}
+
+// Challenge - Social challenges between users
+model Challenge {
+  id              String   @id @default(uuid())
+  creatorId       Int
+  name            String
+  description     String?
+  type            String   // collaborative, competitive
+  status          String   // draft, active, completed, failed, cancelled
+  startDate       DateTime
+  endDate         DateTime
+
+  // Target metrics (JSON for flexibility)
+  // Example: { distance: 150000, elevation: 5000, activityType: "Run" }
+  targets         Json
+
+  // Competitive goal type (null for collaborative)
+  // Values: most, least, exact
+  competitiveGoal String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  creator         User                   @relation(fields: [creatorId], references: [id])
+  participants    ChallengeParticipant[]
+  activities      ChallengeActivity[]
+  events          ChallengeEvent[]
+
+  @@index([status, endDate]) // For cron queries
+  @@index([creatorId])
+  @@map("challenges")
+}
+
+// Challenge participants - Users in a challenge
+model ChallengeParticipant {
+  id              Int      @id @default(autoincrement())
+  challengeId     String
+  userId          Int
+  status          String   // invited, accepted, declined, left
+  invitedAt       DateTime @default(now())
+  acceptedAt      DateTime?
+
+  // Cached progress (updated by webhook)
+  totalDistance   Float    @default(0)
+  totalElevation  Float    @default(0)
+  activityCount   Int      @default(0)
+  lastActivityAt  DateTime?
+
+  // Relations
+  challenge       Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([challengeId, userId])
+  @@index([userId])
+  @@index([challengeId, status])
+  @@map("challenge_participants")
+}
+
+// Challenge activities - Activities linked to challenges
+model ChallengeActivity {
+  id              String   @id @default(uuid())
+  challengeId     String
+  userId          Int
+  activityId      BigInt   // Strava activity ID
+  distance        Float
+  elevation       Float
+  movingTime      Int
+  activityType    String
+  recordedAt      DateTime // Activity start date
+  createdAt       DateTime @default(now())
+
+  // Relations
+  challenge       Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  user            User      @relation(fields: [userId], references: [id])
+
+  @@unique([challengeId, activityId]) // Prevent duplicates
+  @@index([challengeId, userId])
+  @@index([challengeId, recordedAt])
+  @@map("challenge_activities")
+}
+
+// Challenge events - For frontend polling
+model ChallengeEvent {
+  id              String   @id @default(uuid())
+  challengeId     String
+  userId          Int?     // Who triggered (null for system events)
+  type            String   // activity_added, milestone_reached, completed, etc
+  data            Json     // Event-specific data
+  createdAt       DateTime @default(now())
+
+  // Relations
+  challenge       Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  @@index([challengeId, createdAt]) // For polling queries
+  @@map("challenge_events")
 }

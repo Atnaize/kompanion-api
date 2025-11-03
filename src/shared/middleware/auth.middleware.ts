@@ -2,15 +2,6 @@ import type { Request, Response, NextFunction } from 'express';
 import { HttpStatus } from '../types/index.js';
 import { jwtService } from '../auth/jwt.service.js';
 
-declare global {
-  namespace Express {
-    interface Request {
-      userId?: number;
-      stravaId?: number;
-    }
-  }
-}
-
 export const requireAuth = (req: Request, res: Response, next: NextFunction): void => {
   let token: string | undefined;
 

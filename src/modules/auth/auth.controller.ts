@@ -150,7 +150,7 @@ export class AuthController {
 
   refresh = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { refreshToken } = req.body;
+      const { refreshToken } = req.body as { refreshToken?: unknown };
 
       // Validate refresh token input
       const validation = validateString(refreshToken, {
@@ -215,7 +215,7 @@ export class AuthController {
 
   logout = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { refreshToken } = req.body;
+      const { refreshToken } = req.body as { refreshToken?: unknown };
 
       if (refreshToken && typeof refreshToken === 'string') {
         // Revoke the refresh token
@@ -259,6 +259,117 @@ export class AuthController {
         message: 'Account deleted successfully',
       });
     } catch (error) {
+      next(error);
+    }
+  };
+
+  debug = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.stravaId) {
+        res.status(HttpStatus.UNAUTHORIZED).json({
+          success: false,
+          error: 'Not authenticated',
+        });
+        return;
+      }
+
+      const user = await this.authService.getUserByStravaId(req.stravaId);
+
+      if (!user) {
+        res.status(HttpStatus.NOT_FOUND).json({
+          success: false,
+          error: 'User not found',
+        });
+        return;
+      }
+
+      const now = Math.floor(Date.now() / 1000);
+      const expiresIn = user.tokenExpiresAt - now;
+
+      res.json({
+        success: true,
+        data: {
+          userId: user.id,
+          stravaId: user.stravaId,
+          tokenExpiresAt: user.tokenExpiresAt,
+          tokenExpiresAtDate: new Date(user.tokenExpiresAt * 1000).toISOString(),
+          currentTime: now,
+          currentTimeDate: new Date(now * 1000).toISOString(),
+          expiresIn,
+          expiresInMinutes: Math.floor(expiresIn / 60),
+          isExpired: expiresIn <= 0,
+          isExpiringSoon: expiresIn <= 300,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  forceRefreshStravaToken = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      if (!req.stravaId) {
+        res.status(HttpStatus.UNAUTHORIZED).json({
+          success: false,
+          error: 'Not authenticated',
+        });
+        return;
+      }
+
+      const user = await this.authService.getUserByStravaId(req.stravaId);
+
+      if (!user) {
+        res.status(HttpStatus.NOT_FOUND).json({
+          success: false,
+          error: 'User not found',
+        });
+        return;
+      }
+
+      console.info('[Auth Controller] Force refreshing Strava token for user:', user.id);
+      console.info('[Auth Controller] Current token expires at:', user.tokenExpiresAt);
+      console.info(
+        '[Auth Controller] Refresh token (first 20 chars):',
+        user.refreshToken.substring(0, 20) + '...'
+      );
+
+      try {
+        const tokenResponse = await this.authService.refreshAccessToken(user.refreshToken);
+        await this.authService.saveUser(tokenResponse);
+
+        console.info(
+          '[Auth Controller] Token refreshed successfully, new expiry:',
+          tokenResponse.expires_at
+        );
+
+        res.json({
+          success: true,
+          message: 'Strava token refreshed successfully',
+          data: {
+            expiresAt: tokenResponse.expires_at,
+            expiresAtDate: new Date(tokenResponse.expires_at * 1000).toISOString(),
+          },
+        });
+      } catch (refreshError) {
+        console.error('[Auth Controller] Failed to refresh Strava token:', refreshError);
+
+        // Return a clear error message to the user
+        res.status(HttpStatus.UNAUTHORIZED).json({
+          success: false,
+          error:
+            refreshError instanceof Error ? refreshError.message : 'Failed to refresh Strava token',
+          requiresReauth: true,
+          message:
+            'Your Strava refresh token is invalid. Please log out and re-authenticate with Strava.',
+        });
+        return;
+      }
+    } catch (error) {
+      console.error('[Auth Controller] Error in forceRefreshStravaToken:', error);
       next(error);
     }
   };

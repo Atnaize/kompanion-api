@@ -6,27 +6,30 @@ import { authRoutes } from './modules/auth/index.js';
 import { activitiesRoutes } from './modules/activities/index.js';
 import { statsRoutes } from './modules/stats/index.js';
 import { achievementsRoutes } from './modules/achievements/index.js';
-import { questsRoutes } from './modules/quests/index.js';
+import { webhooksRoutes } from './modules/webhooks/index.js';
+import { challengeRoutes } from './modules/challenges/index.js';
+import { friendsRoutes } from './modules/friends/index.js';
+import { cronRoutes } from './modules/cron/index.js';
 
 const app = express();
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      console.log(`📡 CORS check for origin: ${origin || 'no-origin'}`);
-      console.log(`🔐 Allowed origins: ${config.allowedOrigins.join(', ')}`);
+      console.info(`📡 CORS check for origin: ${origin || 'no-origin'}`);
+      console.info(`🔐 Allowed origins: ${config.allowedOrigins.join(', ')}`);
 
       // Allow requests with no origin (like mobile apps or curl)
       if (!origin) {
-        console.log('✅ Allowing request with no origin');
+        console.info('✅ Allowing request with no origin');
         return callback(null, true);
       }
 
       if (config.allowedOrigins.includes(origin)) {
-        console.log(`✅ Origin ${origin} is allowed`);
+        console.info(`✅ Origin ${origin} is allowed`);
         callback(null, true);
       } else {
-        console.log(`❌ Origin ${origin} is NOT allowed`);
+        console.info(`❌ Origin ${origin} is NOT allowed`);
         callback(new Error('Not allowed by CORS'));
       }
     },
@@ -54,7 +57,10 @@ app.use('/api/auth', authRoutes);
 app.use('/api/activities', activitiesRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/achievements', achievementsRoutes);
-app.use('/api/quests', questsRoutes);
+app.use('/api/webhooks', webhooksRoutes);
+app.use('/api/challenges', challengeRoutes);
+app.use('/api/friends', friendsRoutes);
+app.use('/api/cron', cronRoutes);
 
 app.use(errorHandler);
 

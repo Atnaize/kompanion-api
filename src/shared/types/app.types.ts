@@ -43,31 +43,6 @@ export interface Achievement {
   isSecret?: boolean;
 }
 
-export interface Quest {
-  id: string;
-  name: string;
-  description: string;
-  startDate: string;
-  endDate: string;
-  type: 'weekly' | 'monthly' | 'special';
-  objectives: QuestObjective[];
-  rewards: {
-    xp: number;
-    achievements?: string[];
-  };
-  status: 'active' | 'completed' | 'expired';
-}
-
-export interface QuestObjective {
-  id: string;
-  description: string;
-  type: 'distance' | 'elevation' | 'activities' | 'time';
-  target: number;
-  current: number;
-  activityType?: string;
-  completed: boolean;
-}
-
 export interface UserStats {
   userId: number;
   totalDistance: number;
@@ -76,8 +51,6 @@ export interface UserStats {
   totalTime: number;
   currentStreak: number;
   longestStreak: number;
-  level: number;
-  xp: number;
   byActivityType: {
     [key: string]: {
       count: number;
