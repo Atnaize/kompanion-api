@@ -149,3 +149,38 @@ export interface ActivityTotals {
   elevation_gain: number;
   achievement_count?: number;
 }
+
+export interface StravaSegment {
+  id: number;
+  name: string;
+  activity_type: string;
+  distance: number;
+  average_grade: number;
+  maximum_grade: number;
+  elevation_high: number;
+  elevation_low: number;
+  climb_category: number;
+  city: string;
+  state: string;
+  country: string;
+}
+
+export interface StravaSegmentEffort {
+  id: number;
+  elapsed_time: number;
+  moving_time: number;
+  start_date: string;
+  start_date_local: string;
+  distance: number;
+  pr_rank: number | null;
+  segment: StravaSegment;
+  achievements?: Array<{
+    type: string;
+    type_id: number;
+    rank?: number;
+  }>;
+}
+
+export interface StravaDetailedActivity extends StravaActivity {
+  segment_efforts?: StravaSegmentEffort[];
+}

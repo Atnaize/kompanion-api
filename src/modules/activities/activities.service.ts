@@ -2,7 +2,7 @@ import axios from 'axios';
 import { config } from '@config/env.js';
 import { prisma } from '@shared/utils/index.js';
 import { AuthService } from '../auth/auth.service.js';
-import type { StravaActivity, User } from '@shared/types/index.js';
+import type { StravaActivity, StravaDetailedActivity, User } from '@shared/types/index.js';
 import { AppError } from '@shared/middleware/index.js';
 import { HttpStatus } from '@shared/types/index.js';
 
@@ -252,6 +252,43 @@ export class ActivitiesService {
     });
 
     return activity ? this.mapDbActivityToStrava(activity) : null;
+  }
+
+  async getDetailedActivityById(
+    activityId: number,
+    user: User
+  ): Promise<StravaDetailedActivity | null> {
+    // First check if activity belongs to user
+    const dbActivity = await prisma.activity.findFirst({
+      where: {
+        id: BigInt(activityId),
+        userId: user.id,
+      },
+    });
+
+    if (!dbActivity) {
+      return null;
+    }
+
+    // Fetch detailed activity from Strava API (includes segment efforts)
+    const accessToken = await this.authService.ensureValidToken(user);
+
+    try {
+      const response = await axios.get<StravaDetailedActivity>(
+        `${config.strava.apiUrl}/activities/${activityId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
+
+      return response.data;
+    } catch (error) {
+      console.error('Fetch detailed activity error:', error);
+      // Fall back to basic activity data if detailed fetch fails
+      return this.mapDbActivityToStrava(dbActivity);
+    }
   }
 
   /**

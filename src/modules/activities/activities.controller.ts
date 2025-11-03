@@ -121,7 +121,7 @@ export class ActivitiesController {
     try {
       const { id } = req.params;
 
-      if (!req.userId) {
+      if (!req.stravaId) {
         res.status(HttpStatus.UNAUTHORIZED).json({
           success: false,
           error: 'Not authenticated',
@@ -141,7 +141,18 @@ export class ActivitiesController {
 
       const activityId = parseInt(id, 10);
 
-      const activity = await this.activitiesService.getActivityById(activityId, req.userId);
+      const user = await this.authService.getUserByStravaId(req.stravaId);
+
+      if (!user) {
+        res.status(HttpStatus.NOT_FOUND).json({
+          success: false,
+          error: 'User not found',
+        });
+        return;
+      }
+
+      // Fetch detailed activity with segment efforts from Strava
+      const activity = await this.activitiesService.getDetailedActivityById(activityId, user);
 
       if (!activity) {
         res.status(HttpStatus.NOT_FOUND).json({
