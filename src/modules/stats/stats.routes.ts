@@ -6,5 +6,9 @@ const router = Router();
 const statsController = new StatsController();
 
 router.get('/', requireAuth, statsController.getUserStats);
+router.get('/progress', requireAuth, statsController.getProgressData);
+router.get('/compare', requireAuth, statsController.comparePeriods);
+router.get('/compare-custom', requireAuth, statsController.compareCustomRanges);
+router.get('/heatmap', requireAuth, statsController.getHeatmapData);
 
 export default router;
