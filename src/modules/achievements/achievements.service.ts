@@ -26,9 +26,16 @@ export class AchievementsService {
       },
     });
 
+    // Get progress for locked achievements
+    const progressRecords = await prisma.achievementProgress.findMany({
+      where: { userId },
+    });
+
     const unlockedMap = new Map(
       unlockedAchievements.map((ua) => [ua.achievementId, ua.unlockedAt])
     );
+
+    const progressMap = new Map(progressRecords.map((p) => [p.achievementId, p]));
 
     // Get user stats to check which are redeemable
     const stats = await this.statsService.getUserStats(userId);
@@ -42,6 +49,9 @@ export class AchievementsService {
       const meetsRequirements = this.isAchievementUnlocked(achievement, userStats);
       const isRedeemable = !isUnlocked && meetsRequirements;
       const isSecret = achievement.isSecret && !isUnlocked;
+
+      // Get progress data (but not for secret achievements)
+      const progress = !isSecret ? progressMap.get(achievement.id) : undefined;
 
       return {
         id: achievement.id,
@@ -57,6 +67,14 @@ export class AchievementsService {
         unlockedAt: isUnlocked ? unlockedMap.get(achievement.id)!.toISOString() : undefined,
         isRedeemable,
         isSecret: achievement.isSecret,
+        // Include progress data (only for non-secret, locked achievements)
+        progress: progress
+          ? {
+              currentValue: progress.currentValue,
+              targetValue: progress.targetValue,
+              percentage: progress.percentage,
+            }
+          : undefined,
       };
     });
   }

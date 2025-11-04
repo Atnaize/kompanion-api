@@ -1,7 +1,9 @@
 import { prisma } from '@shared/utils/index.js';
 import type { UserStats } from '@shared/types/index.js';
+import { AchievementProgressService } from '../achievements/achievement-progress.service.js';
 
 export class StatsService {
+  private achievementProgressService = new AchievementProgressService();
   /**
    * Calculate and store user stats from activities
    * Returns fresh calculated stats
@@ -95,7 +97,7 @@ export class StatsService {
       });
     }
 
-    return {
+    const stats = {
       userId,
       totalDistance: Math.round(totalDistance),
       totalElevation: Math.round(totalElevation),
@@ -105,6 +107,11 @@ export class StatsService {
       longestStreak,
       byActivityType,
     };
+
+    // Update achievement progress after stats calculation
+    await this.achievementProgressService.updateAllProgress(userId, stats);
+
+    return stats;
   }
 
   /**

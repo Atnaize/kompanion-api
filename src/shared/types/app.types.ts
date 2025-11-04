@@ -41,6 +41,11 @@ export interface Achievement {
   };
   unlockedAt?: string;
   isSecret?: boolean;
+  progress?: {
+    currentValue: number;
+    targetValue: number;
+    percentage: number;
+  };
 }
 
 export interface UserStats {
