@@ -2,6 +2,7 @@ import { prisma } from '@shared/utils/index.js';
 import axios from 'axios';
 import type { StravaActivity } from '@shared/types/index.js';
 import { StatsService } from '../stats/stats.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 
 interface StravaWebhookEvent {
   object_type: 'activity' | 'athlete';
@@ -19,6 +20,7 @@ interface StravaWebhookEvent {
 
 export class StravaWebhookService {
   private statsService = new StatsService();
+  private notificationsService = new NotificationsService();
 
   /**
    * Process a Strava webhook event
@@ -81,6 +83,13 @@ export class StravaWebhookService {
 
       // Update active challenges
       await this.updateChallenges(user.id, activity);
+
+      // Send push notification
+      await this.notificationsService
+        .notifyActivityWebhook(user.id, activity.name, activity.sport_type)
+        .catch((error) => {
+          console.error('[Notifications] Error sending activity webhook notification:', error);
+        });
 
       console.info(`[Strava Webhook] Successfully processed activity ${event.object_id}`);
     } catch (error) {

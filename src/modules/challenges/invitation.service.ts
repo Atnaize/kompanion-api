@@ -1,7 +1,10 @@
 import { prisma } from '@shared/utils/index.js';
 import type { ChallengeParticipant } from '@shared/types/index.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 
 export class InvitationService {
+  private notificationsService = new NotificationsService();
+
   /**
    * Invite users to a challenge
    */
@@ -62,6 +65,24 @@ export class InvitationService {
             },
           },
         })
+      )
+    );
+
+    // Send push notifications to invited users
+    const creator = await prisma.user.findUnique({
+      where: { id: creatorId },
+      select: { firstname: true, lastname: true },
+    });
+
+    const creatorName = creator ? `${creator.firstname} ${creator.lastname}` : 'Someone';
+
+    await Promise.allSettled(
+      newUserIds.map((userId) =>
+        this.notificationsService
+          .notifyChallengeInvite(userId, challenge.name, creatorName)
+          .catch((error) => {
+            console.error(`[Notifications] Error sending invitation to user ${userId}:`, error);
+          })
       )
     );
   }

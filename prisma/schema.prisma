@@ -35,6 +35,8 @@ model User {
   createdChallenges     Challenge[]
   challengeParticipants ChallengeParticipant[]
   challengeActivities   ChallengeActivity[]
+  pushSubscriptions     PushSubscription[]
+  notificationPreferences NotificationPreference?
 
   @@index([stravaId])
   @@map("users")
@@ -188,6 +190,45 @@ model RefreshToken {
   @@index([token])
   @@index([expiresAt])
   @@map("refresh_tokens")
+}
+
+// Push Subscription - Web Push notification endpoints
+model PushSubscription {
+  id          String   @id @default(uuid())
+  userId      Int
+  endpoint    String
+  p256dh      String   // Encryption key
+  auth        String   // Authentication secret
+  userAgent   String?  // To identify device
+  createdAt   DateTime @default(now())
+  lastUsedAt  DateTime @default(now())
+
+  // Relations
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, endpoint])
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+
+// Notification Preferences - User notification settings
+model NotificationPreference {
+  id                          Int      @id @default(autoincrement())
+  userId                      Int      @unique
+
+  // Notification types
+  activityWebhooks            Boolean  @default(true)
+  challengeInvites            Boolean  @default(true)
+  challengeProgress           Boolean  @default(true)
+  challengeReminders          Boolean  @default(true)
+
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+
+  // Relations
+  user                        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_preferences")
 }
 
 // Challenge - Social challenges between users

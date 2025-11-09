@@ -11,6 +11,9 @@ const envSchema = z.object({
   STRAVA_CLIENT_SECRET: z.string().min(1, 'STRAVA_CLIENT_SECRET is required'),
   STRAVA_REDIRECT_URI: z.string().url(),
   SESSION_SECRET: z.string().min(32, 'SESSION_SECRET must be at least 32 characters'),
+  VAPID_PUBLIC_KEY: z.string().min(1, 'VAPID_PUBLIC_KEY is required'),
+  VAPID_PRIVATE_KEY: z.string().min(1, 'VAPID_PRIVATE_KEY is required'),
+  VAPID_SUBJECT: z.string().min(1, 'VAPID_SUBJECT is required (mailto:email or https://domain)'),
 });
 
 const parseEnv = (): z.infer<typeof envSchema> => {
@@ -42,5 +45,10 @@ export const config = {
   },
   session: {
     secret: env.SESSION_SECRET,
+  },
+  vapid: {
+    publicKey: env.VAPID_PUBLIC_KEY,
+    privateKey: env.VAPID_PRIVATE_KEY,
+    subject: env.VAPID_SUBJECT,
   },
 } as const;

@@ -10,6 +10,7 @@ import { webhooksRoutes } from './modules/webhooks/index.js';
 import { challengeRoutes } from './modules/challenges/index.js';
 import { friendsRoutes } from './modules/friends/index.js';
 import { cronRoutes } from './modules/cron/index.js';
+import { notificationsRoutes } from './modules/notifications/index.js';
 
 const app = express();
 
@@ -61,6 +62,7 @@ app.use('/api/webhooks', webhooksRoutes);
 app.use('/api/challenges', challengeRoutes);
 app.use('/api/friends', friendsRoutes);
 app.use('/api/cron', cronRoutes);
+app.use('/api/notifications', notificationsRoutes);
 
 app.use(errorHandler);
 
