@@ -2,6 +2,7 @@ import webpush from 'web-push';
 import { config } from '@config/env.js';
 import { prisma } from '@shared/utils/index.js';
 import type { PushSubscription as WebPushSubscription } from 'web-push';
+import type { NotificationPreference } from '@prisma/client';
 
 interface PushPayload {
   title: string;
@@ -13,11 +14,7 @@ interface PushPayload {
 
 export class NotificationsService {
   constructor() {
-    webpush.setVapidDetails(
-      config.vapid.subject,
-      config.vapid.publicKey,
-      config.vapid.privateKey
-    );
+    webpush.setVapidDetails(config.vapid.subject, config.vapid.publicKey, config.vapid.privateKey);
   }
 
   async subscribe(
@@ -57,7 +54,7 @@ export class NotificationsService {
     });
   }
 
-  async getPreferences(userId: number) {
+  async getPreferences(userId: number): Promise<NotificationPreference> {
     let preferences = await prisma.notificationPreference.findUnique({
       where: { userId },
     });
@@ -79,7 +76,7 @@ export class NotificationsService {
       challengeProgress?: boolean;
       challengeReminders?: boolean;
     }
-  ) {
+  ): Promise<NotificationPreference> {
     return await prisma.notificationPreference.upsert({
       where: { userId },
       update: updates,
@@ -96,7 +93,7 @@ export class NotificationsService {
     });
 
     if (subscriptions.length === 0) {
-      console.log(`[Notifications] No subscriptions found for user ${userId}`);
+      console.info(`[Notifications] No subscriptions found for user ${userId}`);
       return;
     }
 
@@ -126,7 +123,7 @@ export class NotificationsService {
             data: { lastUsedAt: new Date() },
           });
 
-          console.log(`[Notifications] Sent to subscription ${sub.id}`);
+          console.info(`[Notifications] Sent to subscription ${sub.id}`);
         } catch (error) {
           console.error(`[Notifications] Failed to send to subscription ${sub.id}:`, error);
 
@@ -136,7 +133,7 @@ export class NotificationsService {
               await prisma.pushSubscription.delete({
                 where: { id: sub.id },
               });
-              console.log(`[Notifications] Deleted invalid subscription ${sub.id}`);
+              console.info(`[Notifications] Deleted invalid subscription ${sub.id}`);
             }
           }
 
@@ -148,7 +145,7 @@ export class NotificationsService {
     const failed = results.filter((r) => r.status === 'rejected').length;
     const succeeded = results.filter((r) => r.status === 'fulfilled').length;
 
-    console.log(
+    console.info(
       `[Notifications] Sent to user ${userId}: ${succeeded} succeeded, ${failed} failed`
     );
   }
