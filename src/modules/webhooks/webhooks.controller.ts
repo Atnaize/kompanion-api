@@ -74,4 +74,64 @@ export class WebhooksController {
       res.status(500).json({ error: 'Internal server error' });
     }
   };
+
+  /**
+   * POST /api/webhooks/test
+   * Test endpoint to simulate a Strava webhook event locally
+   * Requires authentication
+   */
+  testWebhook = async (req: Request, res: Response): Promise<void> => {
+    try {
+      if (!req.userId) {
+        res.status(401).json({
+          success: false,
+          error: 'Not authenticated',
+        });
+        return;
+      }
+
+      const { activityId } = req.body as { activityId?: number };
+
+      if (!activityId) {
+        res.status(400).json({
+          success: false,
+          error: 'activityId is required',
+        });
+        return;
+      }
+
+      // Create a simulated webhook event
+      const simulatedEvent = {
+        object_type: 'activity' as const,
+        object_id: activityId,
+        aspect_type: 'create' as const,
+        owner_id: req.stravaId!,
+        subscription_id: 0,
+        event_time: Math.floor(Date.now() / 1000),
+      };
+
+      console.info(
+        '[Test Webhook] Simulating webhook event:',
+        JSON.stringify(simulatedEvent, null, 2)
+      );
+
+      // Process the simulated event
+      await this.stravaWebhookService.processEvent(simulatedEvent);
+
+      res.status(200).json({
+        success: true,
+        message: 'Webhook event processed successfully',
+        data: {
+          activityId,
+          processed: true,
+        },
+      });
+    } catch (error) {
+      console.error('[Test Webhook] Error:', error);
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Internal server error',
+      });
+    }
+  };
 }

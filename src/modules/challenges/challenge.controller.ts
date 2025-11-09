@@ -314,4 +314,35 @@ export class ChallengeController {
       res.status(500).json({ success: false, error: 'Internal server error' });
     }
   };
+
+  /**
+   * POST /api/challenges/sync
+   * Sync all active challenges with current activities
+   */
+  syncActiveChallenges = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const userId = req.userId;
+
+      if (!userId) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const result = await this.challengeService.syncActiveChallenges(userId);
+
+      res.status(200).json({
+        success: true,
+        data: result,
+        message: `Synced ${result.synced} challenge(s), added ${result.activitiesAdded} activity(ies)`,
+      });
+    } catch (error) {
+      if (error instanceof Error) {
+        res.status(400).json({ success: false, error: error.message });
+        return;
+      }
+
+      console.error('[Challenge Controller] Sync error:', error);
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  };
 }

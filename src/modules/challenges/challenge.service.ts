@@ -542,6 +542,67 @@ export class ChallengeService {
   }
 
   /**
+   * Sync all activities for active challenges
+   * This recalculates all participant progress based on current activities
+   */
+  async syncActiveChallenges(userId: number): Promise<{
+    synced: number;
+    activitiesAdded: number;
+  }> {
+    // Get all active challenges the user is participating in
+    const challenges = await prisma.challenge.findMany({
+      where: {
+        status: 'active',
+        participants: {
+          some: {
+            userId,
+            status: 'accepted',
+          },
+        },
+      },
+      include: {
+        participants: {
+          where: { status: 'accepted' },
+        },
+      },
+    });
+
+    console.info(
+      `[Challenge Sync] Found ${challenges.length} active challenges for user ${userId}`
+    );
+
+    let totalActivitiesAdded = 0;
+
+    for (const challenge of challenges) {
+      const beforeCount = await prisma.challengeActivity.count({
+        where: { challengeId: challenge.id },
+      });
+
+      await this.countRetroactiveActivities(
+        challenge.id,
+        challenge.startDate,
+        challenge.endDate,
+        challenge.participants.map((p) => p.userId)
+      );
+
+      const afterCount = await prisma.challengeActivity.count({
+        where: { challengeId: challenge.id },
+      });
+
+      totalActivitiesAdded += afterCount - beforeCount;
+    }
+
+    console.info(
+      `[Challenge Sync] Synced ${challenges.length} challenges, added ${totalActivitiesAdded} activities`
+    );
+
+    return {
+      synced: challenges.length,
+      activitiesAdded: totalActivitiesAdded,
+    };
+  }
+
+  /**
    * Get challenge progress summary
    */
   async getChallengeProgress(challengeId: string): Promise<{

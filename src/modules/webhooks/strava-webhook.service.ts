@@ -1,6 +1,7 @@
 import { prisma } from '@shared/utils/index.js';
 import axios from 'axios';
 import type { StravaActivity } from '@shared/types/index.js';
+import { StatsService } from '../stats/stats.service.js';
 
 interface StravaWebhookEvent {
   object_type: 'activity' | 'athlete';
@@ -17,6 +18,8 @@ interface StravaWebhookEvent {
 }
 
 export class StravaWebhookService {
+  private statsService = new StatsService();
+
   /**
    * Process a Strava webhook event
    */
@@ -206,9 +209,14 @@ export class StravaWebhookService {
    * Update user stats with new activity
    */
   private async updateUserStats(userId: number, activity: StravaActivity): Promise<void> {
-    // This would integrate with your existing stats service
-    // For now, we'll skip this as it's handled by your sync logic
-    console.info(`[Stats] Would update stats for user ${userId} with activity ${activity.id}`);
+    try {
+      console.info(`[Stats] Recalculating stats for user ${userId} after activity ${activity.id}`);
+      await this.statsService.calculateUserStats(userId);
+      console.info(`[Stats] Successfully updated stats for user ${userId}`);
+    } catch (error) {
+      console.error('[Stats] Error updating user stats:', error);
+      throw error;
+    }
   }
 
   /**
@@ -218,11 +226,10 @@ export class StravaWebhookService {
     const activityDate = new Date(activity.start_date);
 
     // Find active challenges this user is participating in
+    // Don't filter by activity date here - let the logic below decide
     const activeChallenges = await prisma.challenge.findMany({
       where: {
         status: 'active',
-        startDate: { lte: activityDate },
-        endDate: { gte: activityDate },
         participants: {
           some: {
             userId,
@@ -241,8 +248,15 @@ export class StravaWebhookService {
       `[Challenges] Found ${activeChallenges.length} active challenges for user ${userId}`
     );
 
+    // Only add activities that fall within the challenge date range
     for (const challenge of activeChallenges) {
-      await this.addActivityToChallenge(challenge.id, userId, activity);
+      if (activityDate >= challenge.startDate && activityDate <= challenge.endDate) {
+        await this.addActivityToChallenge(challenge.id, userId, activity);
+      } else {
+        console.info(
+          `[Challenges] Skipping challenge ${challenge.id} - activity date ${activityDate.toISOString()} outside range ${challenge.startDate.toISOString()} to ${challenge.endDate.toISOString()}`
+        );
+      }
     }
   }
 
