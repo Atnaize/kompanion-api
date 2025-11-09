@@ -292,6 +292,180 @@ export class ActivitiesService {
   }
 
   /**
+   * Delete activities and recalculate all related stats
+   * Used for testing webhook flow
+   */
+  async deleteActivitiesAndRecalculate(
+    userId: number,
+    activityIds: number[]
+  ): Promise<{
+    deleted: number;
+    challengeActivitiesRemoved: number;
+    challengesUpdated: number;
+  }> {
+    console.info(`[Activities] Deleting ${activityIds.length} activities for user ${userId}`);
+    console.info(`[Activities] Activity IDs: ${activityIds.join(', ')}`);
+
+    // Convert to BigInt for database
+    const bigIntIds = activityIds.map((id) => BigInt(id));
+
+    // Find affected challenge participants before deleting
+    const affectedChallengeActivities = await prisma.challengeActivity.findMany({
+      where: {
+        activityId: { in: bigIntIds },
+        userId,
+      },
+      select: {
+        challengeId: true,
+        userId: true,
+        distance: true,
+        elevation: true,
+        activityId: true,
+      },
+    });
+
+    console.info(
+      `[Activities] Found ${affectedChallengeActivities.length} challenge activities to remove`
+    );
+
+    if (affectedChallengeActivities.length > 0) {
+      console.info('[Activities] Challenge activities details:');
+      affectedChallengeActivities.forEach((ca) => {
+        console.info(
+          `  - Challenge ${ca.challengeId}, Activity ${ca.activityId}: ${ca.distance}m, ${ca.elevation}m elevation`
+        );
+      });
+    }
+
+    // Group by challenge participant for stats update
+    const participantUpdates = new Map<
+      string,
+      { challengeId: string; userId: number; distance: number; elevation: number; count: number }
+    >();
+
+    for (const ca of affectedChallengeActivities) {
+      const key = `${ca.challengeId}::${ca.userId}`;
+      const existing = participantUpdates.get(key) || {
+        challengeId: ca.challengeId,
+        userId: ca.userId,
+        distance: 0,
+        elevation: 0,
+        count: 0,
+      };
+      participantUpdates.set(key, {
+        challengeId: ca.challengeId,
+        userId: ca.userId,
+        distance: existing.distance + ca.distance,
+        elevation: existing.elevation + ca.elevation,
+        count: existing.count + 1,
+      });
+    }
+
+    console.info(`[Activities] Will update ${participantUpdates.size} challenge participants`);
+
+    // Delete challenge activities
+    const deletedChallengeActivities = await prisma.challengeActivity.deleteMany({
+      where: {
+        activityId: { in: bigIntIds },
+        userId,
+      },
+    });
+
+    console.info(`[Activities] Deleted ${deletedChallengeActivities.count} challenge activities`);
+
+    // Update challenge participant stats (decrement)
+    let updatedCount = 0;
+    for (const [, updates] of participantUpdates) {
+      // Get current stats before update
+      const currentParticipant = await prisma.challengeParticipant.findUnique({
+        where: {
+          challengeId_userId: {
+            challengeId: updates.challengeId,
+            userId: updates.userId,
+          },
+        },
+        select: {
+          totalDistance: true,
+          totalElevation: true,
+          activityCount: true,
+        },
+      });
+
+      console.info(
+        `[Activities] Challenge ${updates.challengeId} participant ${updates.userId} BEFORE: ${currentParticipant?.totalDistance}m, ${currentParticipant?.totalElevation}m elev, ${currentParticipant?.activityCount} activities`
+      );
+
+      await prisma.challengeParticipant.update({
+        where: {
+          challengeId_userId: {
+            challengeId: updates.challengeId,
+            userId: updates.userId,
+          },
+        },
+        data: {
+          totalDistance: { decrement: updates.distance },
+          totalElevation: { decrement: updates.elevation },
+          activityCount: { decrement: updates.count },
+        },
+      });
+
+      // Get stats after update
+      const updatedParticipant = await prisma.challengeParticipant.findUnique({
+        where: {
+          challengeId_userId: {
+            challengeId: updates.challengeId,
+            userId: updates.userId,
+          },
+        },
+        select: {
+          totalDistance: true,
+          totalElevation: true,
+          activityCount: true,
+        },
+      });
+
+      console.info(
+        `[Activities] Challenge ${updates.challengeId} participant ${updates.userId} AFTER: ${updatedParticipant?.totalDistance}m, ${updatedParticipant?.totalElevation}m elev, ${updatedParticipant?.activityCount} activities`
+      );
+      console.info(
+        `[Activities] Decremented: -${updates.distance}m, -${updates.elevation}m elev, -${updates.count} activities`
+      );
+
+      updatedCount++;
+    }
+
+    // Delete activities from database
+    const { count } = await prisma.activity.deleteMany({
+      where: {
+        id: { in: bigIntIds },
+        userId,
+      },
+    });
+
+    console.info(`[Activities] Deleted ${count} activities`);
+
+    // Delete related achievement progress (will be recalculated)
+    await prisma.achievementProgress.deleteMany({
+      where: { userId },
+    });
+
+    console.info(`[Activities] Cleared achievement progress for recalculation`);
+
+    // Delete user stats (will be recalculated)
+    await prisma.userStats.deleteMany({
+      where: { userId },
+    });
+
+    console.info(`[Activities] Cleared stats for recalculation`);
+
+    return {
+      deleted: count,
+      challengeActivitiesRemoved: deletedChallengeActivities.count,
+      challengesUpdated: updatedCount,
+    };
+  }
+
+  /**
    * Map Strava API activity to database model
    */
   private mapStravaActivityToDb(

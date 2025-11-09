@@ -170,4 +170,47 @@ export class ActivitiesController {
       next(error);
     }
   };
+
+  /**
+   * POST /api/activities/test/delete
+   * Delete activities for testing (cleans up all related data)
+   */
+  deleteActivitiesForTest = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      if (!req.userId) {
+        res.status(HttpStatus.UNAUTHORIZED).json({
+          success: false,
+          error: 'Not authenticated',
+        });
+        return;
+      }
+
+      const { activityIds } = req.body as { activityIds?: number[] };
+
+      if (!activityIds || !Array.isArray(activityIds) || activityIds.length === 0) {
+        res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          error: 'activityIds array is required',
+        });
+        return;
+      }
+
+      const result = await this.activitiesService.deleteActivitiesAndRecalculate(
+        req.userId,
+        activityIds
+      );
+
+      res.json({
+        success: true,
+        data: result,
+        message: `Deleted ${result.deleted} activities, removed ${result.challengeActivitiesRemoved} challenge activities, updated ${result.challengesUpdated} challenge(s)`,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
 }
