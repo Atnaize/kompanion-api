@@ -293,7 +293,7 @@ export class ActivitiesService {
 
   /**
    * Delete activities and recalculate all related stats
-   * Used for testing webhook flow
+   * Used for testing activity sync flow
    */
   async deleteActivitiesAndRecalculate(
     userId: number,

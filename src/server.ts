@@ -6,10 +6,8 @@ import { authRoutes } from './modules/auth/index.js';
 import { activitiesRoutes } from './modules/activities/index.js';
 import { statsRoutes } from './modules/stats/index.js';
 import { achievementsRoutes } from './modules/achievements/index.js';
-import { webhooksRoutes } from './modules/webhooks/index.js';
 import { challengeRoutes } from './modules/challenges/index.js';
 import { friendsRoutes } from './modules/friends/index.js';
-import { cronRoutes } from './modules/cron/index.js';
 import { notificationsRoutes } from './modules/notifications/index.js';
 
 const app = express();
@@ -58,10 +56,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/activities', activitiesRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/achievements', achievementsRoutes);
-app.use('/api/webhooks', webhooksRoutes);
 app.use('/api/challenges', challengeRoutes);
 app.use('/api/friends', friendsRoutes);
-app.use('/api/cron', cronRoutes);
 app.use('/api/notifications', notificationsRoutes);
 
 app.use(errorHandler);

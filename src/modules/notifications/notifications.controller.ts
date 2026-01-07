@@ -107,7 +107,6 @@ export class NotificationsController {
       }
 
       const updates = req.body as {
-        activityWebhooks?: unknown;
         challengeInvites?: unknown;
         achievementUnlocks?: unknown;
         challengeProgress?: unknown;
@@ -115,16 +114,12 @@ export class NotificationsController {
       };
 
       const validatedUpdates: {
-        activityWebhooks?: boolean;
         challengeInvites?: boolean;
         achievementUnlocks?: boolean;
         challengeProgress?: boolean;
         challengeReminders?: boolean;
       } = {};
 
-      if (typeof updates.activityWebhooks === 'boolean') {
-        validatedUpdates.activityWebhooks = updates.activityWebhooks;
-      }
       if (typeof updates.challengeInvites === 'boolean') {
         validatedUpdates.challengeInvites = updates.challengeInvites;
       }

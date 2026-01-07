@@ -7,7 +7,6 @@ This document explains the challenge system implemented for Kompanion, allowing 
 The challenge system enables users to:
 - Create collaborative challenges with shared goals
 - Invite Strava friends to challenges
-- Track real-time progress via webhooks
 - Poll for challenge events efficiently with ETag caching
 - Automatically complete/fail challenges when deadlines are reached
 
@@ -68,26 +67,7 @@ Four new tables were added ([prisma/schema.prisma](prisma/schema.prisma#L229-L32
 - `GET /api/friends/invitees?challengeId=<id>` - Get potential invitees
 - `GET /api/friends/search?q=<query>` - Search users by name
 
-#### Cron Jobs
-- `POST /api/cron/check-challenges` - Check and update expired challenges
-- `POST /api/cron/cleanup` - Clean up old events and tokens
-
 ## Real-time Updates
-
-### Webhook Integration
-
-When a user completes an activity on Strava:
-
-1. Strava sends webhook to `/api/webhooks/strava`
-2. Webhook service responds with 200 OK (< 2 seconds)
-3. Activity is processed asynchronously:
-   - Fetched from Strava API
-   - Saved to database
-   - User stats updated
-   - Active challenges found
-   - Activity added to challenges
-   - Participant progress updated
-   - Event created for frontend
 
 ### Frontend Polling
 
@@ -115,20 +95,6 @@ Benefits:
 - Works on Vercel serverless
 - Minimal bandwidth usage
 - No WebSocket complexity
-
-## Cron Jobs
-
-Configured in [vercel.json](vercel.json#L11-L20):
-
-1. **Check Challenges** - Runs every hour
-   - Finds active challenges past their end date
-   - Evaluates if goals were met
-   - Updates status to `completed` or `failed`
-   - Creates completion/failure events
-
-2. **Cleanup** - Runs daily at midnight
-   - Removes events older than 30 days (except milestones)
-   - Removes expired refresh tokens
 
 ## Challenge Types
 
@@ -166,26 +132,11 @@ kompanion-api/src/modules/
 │   ├── friends.routes.ts          # Route definitions
 │   └── index.ts                   # Exports
 │
-├── cron/
-│   ├── cron.service.ts            # Deadline checking & cleanup
-│   ├── cron.controller.ts         # HTTP handlers
-│   ├── cron.routes.ts             # Route definitions
-│   └── index.ts                   # Exports
-│
-└── webhooks/
-    └── strava-webhook.service.ts  # Already implemented
-```
-
-## Environment Variables
-
-Add to your `.env` file:
-
-```bash
-# Already configured
-STRAVA_WEBHOOK_VERIFY_TOKEN=your_random_token
-
-# New for cron auth (optional in development)
-CRON_SECRET=your_cron_secret_for_vercel_cron_jobs
+└── friends/
+    ├── friends.service.ts         # Strava friends API
+    ├── friends.controller.ts      # HTTP handlers
+    ├── friends.routes.ts          # Route definitions
+    └── index.ts                   # Exports
 ```
 
 ## Example Usage
@@ -246,11 +197,9 @@ Authorization: Bearer <token>
 - ETag caching for event polling
 - Pagination ready (not yet implemented)
 - Efficient timestamp-based queries
-- Background processing for webhooks
 
 ### Vercel Free Tier
 Current implementation is optimized for free tier:
-- 2 cron jobs (well within limits)
 - Polling instead of WebSockets
 - Efficient database queries
 - Event cleanup to reduce storage
@@ -276,17 +225,6 @@ curl -X POST http://localhost:3000/api/challenges \
   -d @challenge.json
 ```
 
-### Testing Cron Jobs Locally
-
-```bash
-# Manually trigger cron
-curl -X POST http://localhost:3000/api/cron/check-challenges \
-  -H "Authorization: Bearer your_cron_secret"
-
-curl -X POST http://localhost:3000/api/cron/cleanup \
-  -H "Authorization: Bearer your_cron_secret"
-```
-
 ### Production Testing
 
 After deploying to Vercel:
@@ -294,10 +232,7 @@ After deploying to Vercel:
 1. Create a challenge via API
 2. Invite friends
 3. Complete an activity on Strava
-4. Verify webhook triggers update
-5. Poll for events
-6. Wait for challenge deadline
-7. Verify cron completes/fails challenge
+4. Poll for events
 
 ## Next Steps
 
@@ -325,25 +260,11 @@ After deploying to Vercel:
 - Check imports use correct path aliases
 - Verify Prisma client is generated
 
-### Webhook Issues
-- Verify `STRAVA_WEBHOOK_VERIFY_TOKEN` is set
-- Check webhook subscription status
-- Monitor API logs for webhook events
-
-### Cron Not Running
-- Verify Vercel cron is configured
-- Check `CRON_SECRET` is set in Vercel
-- Monitor Vercel logs
-
 ### Events Not Updating
-- Check webhook is processing activities
 - Verify events are being created
 - Ensure frontend is polling correctly
 - Check ETag logic
 
 ## Resources
 
-- [Strava Webhooks Documentation](https://developers.strava.com/docs/webhooks/)
-- [Vercel Cron Jobs](https://vercel.com/docs/cron-jobs)
 - [Prisma Documentation](https://www.prisma.io/docs)
-- [WEBHOOKS.md](WEBHOOKS.md) - Webhook setup guide

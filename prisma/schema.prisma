@@ -217,7 +217,6 @@ model NotificationPreference {
   userId                      Int      @unique
 
   // Notification types
-  activityWebhooks            Boolean  @default(true)
   challengeInvites            Boolean  @default(true)
   challengeProgress           Boolean  @default(true)
   challengeReminders          Boolean  @default(true)
@@ -259,7 +258,7 @@ model Challenge {
   activities      ChallengeActivity[]
   events          ChallengeEvent[]
 
-  @@index([status, endDate]) // For cron queries
+  @@index([status, endDate])
   @@index([creatorId])
   @@map("challenges")
 }
@@ -273,7 +272,7 @@ model ChallengeParticipant {
   invitedAt       DateTime @default(now())
   acceptedAt      DateTime?
 
-  // Cached progress (updated by webhook)
+  // Cached progress
   totalDistance   Float    @default(0)
   totalElevation  Float    @default(0)
   activityCount   Int      @default(0)

@@ -125,7 +125,7 @@ export class EventsService {
 
   /**
    * Clean up old events (older than 30 days)
-   * Should be called periodically by cron
+   * Should be called periodically
    */
   async cleanupOldEvents(): Promise<number> {
     const thirtyDaysAgo = new Date();

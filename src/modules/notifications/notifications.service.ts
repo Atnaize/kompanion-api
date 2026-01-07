@@ -71,7 +71,6 @@ export class NotificationsService {
   async updatePreferences(
     userId: number,
     updates: {
-      activityWebhooks?: boolean;
       challengeInvites?: boolean;
       challengeProgress?: boolean;
       challengeReminders?: boolean;
@@ -148,27 +147,6 @@ export class NotificationsService {
     console.info(
       `[Notifications] Sent to user ${userId}: ${succeeded} succeeded, ${failed} failed`
     );
-  }
-
-  async notifyActivityWebhook(
-    userId: number,
-    activityName: string,
-    activityType: string
-  ): Promise<void> {
-    const preferences = await this.getPreferences(userId);
-    if (!preferences.activityWebhooks) {
-      return;
-    }
-
-    await this.sendToUser(userId, {
-      title: 'Activity Synced',
-      body: `${activityType}: ${activityName}`,
-      icon: '/icon-192.png',
-      data: {
-        type: 'activity_webhook',
-        activityType,
-      },
-    });
   }
 
   async notifyChallengeInvite(

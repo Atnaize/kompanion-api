@@ -137,7 +137,7 @@ export class RefreshTokenService {
   }
 
   /**
-   * Clean up expired and revoked tokens (for maintenance cron job)
+   * Clean up expired and revoked tokens
    */
   async cleanupExpiredTokens(): Promise<number> {
     const result = await prisma.refreshToken.deleteMany({
