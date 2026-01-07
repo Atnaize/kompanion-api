@@ -151,6 +151,98 @@ export class StatsService {
   }
 
   /**
+   * Calculate stats for a specific time period (without storing)
+   * Returns fresh calculated stats for the period only
+   */
+  async calculateStatsForPeriod(
+    userId: number,
+    period: 'week' | 'month' | 'year'
+  ): Promise<UserStats> {
+    const now = new Date();
+    let startDate: Date;
+
+    // Determine start date based on calendar period (not rolling window)
+    switch (period) {
+      case 'week': {
+        // Start of current week (Monday at 00:00:00)
+        const dayOfWeek = now.getDay();
+        const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+        startDate = new Date(now);
+        startDate.setDate(now.getDate() - daysFromMonday);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      }
+      case 'month':
+        // Start of current month (1st at 00:00:00)
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+        break;
+      case 'year':
+        // Start of current year (January 1st at 00:00:00)
+        startDate = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+        break;
+    }
+
+    // Get activities for the period
+    const activities = await prisma.activity.findMany({
+      where: {
+        userId,
+        startDateLocal: {
+          gte: startDate,
+          lte: now,
+        },
+      },
+      orderBy: { startDate: 'asc' },
+    });
+
+    // Calculate totals
+    const totalDistance = activities.reduce((sum, a) => sum + a.distance, 0);
+    const totalElevation = activities.reduce((sum, a) => sum + a.totalElevationGain, 0);
+    const totalTime = activities.reduce((sum, a) => sum + a.movingTime, 0);
+    const totalActivities = activities.length;
+
+    // Calculate by activity type
+    const byActivityType: UserStats['byActivityType'] = {};
+
+    for (const activity of activities) {
+      if (!byActivityType[activity.type]) {
+        byActivityType[activity.type] = {
+          count: 0,
+          distance: 0,
+          elevation: 0,
+          time: 0,
+        };
+      }
+
+      byActivityType[activity.type].count += 1;
+      byActivityType[activity.type].distance += activity.distance;
+      byActivityType[activity.type].elevation += activity.totalElevationGain;
+      byActivityType[activity.type].time += activity.movingTime;
+    }
+
+    // Calculate streak for the period
+    const activityDates = activities.map((a) => a.startDateLocal.toISOString());
+    const currentStreak = this.calculateStreak(activityDates);
+
+    // Get longest streak from database (not period-specific)
+    const existingStats = await prisma.userStats.findUnique({
+      where: { userId },
+    });
+
+    const longestStreak = existingStats?.longestStreak || 0;
+
+    return {
+      userId,
+      totalDistance: Math.round(totalDistance),
+      totalElevation: Math.round(totalElevation),
+      totalActivities,
+      totalTime,
+      currentStreak,
+      longestStreak,
+      byActivityType,
+    };
+  }
+
+  /**
    * Calculate current activity streak
    */
   private calculateStreak(sortedDates: string[]): number {

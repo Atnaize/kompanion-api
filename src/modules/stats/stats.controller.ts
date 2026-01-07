@@ -15,7 +15,23 @@ export class StatsController {
         return;
       }
 
-      const stats = await this.statsService.calculateUserStats(req.userId);
+      const period = req.query.period as string | undefined;
+
+      // Validate period if provided
+      if (period && !['week', 'month', 'year'].includes(period)) {
+        res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          error: 'Invalid period. Must be: week, month, or year',
+        });
+        return;
+      }
+
+      const stats = period
+        ? await this.statsService.calculateStatsForPeriod(
+            req.userId,
+            period as 'week' | 'month' | 'year'
+          )
+        : await this.statsService.calculateUserStats(req.userId);
 
       res.json({
         success: true,
