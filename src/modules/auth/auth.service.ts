@@ -93,6 +93,7 @@ export class AuthService {
         accessToken: access_token,
         refreshToken: refresh_token,
         tokenExpiresAt: BigInt(expires_at),
+        achievementStartDate: new Date(), // Start tracking achievements from signup
       },
     });
 

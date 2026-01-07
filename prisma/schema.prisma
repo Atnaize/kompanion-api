@@ -12,19 +12,20 @@ datasource db {
 
 // User model - Athletes using the app
 model User {
-  id              Int      @id @default(autoincrement())
-  stravaId        Int      @unique
-  username        String?
-  firstname       String
-  lastname        String
-  profile         String
-  profileMedium   String
-  accessToken     String
-  refreshToken    String
-  tokenExpiresAt  BigInt
-  lastSyncedAt    DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id                    Int      @id @default(autoincrement())
+  stravaId              Int      @unique
+  username              String?
+  firstname             String
+  lastname              String
+  profile               String
+  profileMedium         String
+  accessToken           String
+  refreshToken          String
+  tokenExpiresAt        BigInt
+  lastSyncedAt          DateTime?
+  achievementStartDate  DateTime? // When user started tracking achievements
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   // Relations
   activities            Activity[]
@@ -92,6 +93,8 @@ model Achievement {
   requirementValue Float
   activityType    String?
   isSecret        Boolean  @default(false)
+  validFrom       DateTime? // Start date for time-windowed achievements (null = always available)
+  validUntil      DateTime? // End date for time-windowed achievements (null = always available)
   createdAt       DateTime @default(now())
 
   // Relations

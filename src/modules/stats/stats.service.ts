@@ -9,9 +9,23 @@ export class StatsService {
    * Returns fresh calculated stats
    */
   async calculateUserStats(userId: number): Promise<UserStats> {
-    // Get all activities for the user
+    // Get user to determine achievement start date
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { achievementStartDate: true, createdAt: true },
+    });
+
+    // Use achievementStartDate if set, otherwise fall back to createdAt
+    const startDate = user.achievementStartDate || user.createdAt;
+
+    // Get all activities for the user (only after achievement tracking started)
     const activities = await prisma.activity.findMany({
-      where: { userId },
+      where: {
+        userId,
+        startDateLocal: {
+          gte: startDate,
+        },
+      },
       orderBy: { startDate: 'asc' },
     });
 

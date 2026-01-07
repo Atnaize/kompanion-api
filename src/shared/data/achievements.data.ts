@@ -13,6 +13,8 @@ export interface AchievementDefinition {
   requirementValue: number;
   activityType?: string;
   isSecret?: boolean;
+  validFrom?: Date; // Start date for time-windowed achievements
+  validUntil?: Date; // End date for time-windowed achievements
 }
 
 export const ACHIEVEMENTS: AchievementDefinition[] = [

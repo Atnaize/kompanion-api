@@ -12,8 +12,21 @@ export class AchievementsService {
   async getUserAchievements(
     userId: number
   ): Promise<Array<Achievement & { isRedeemable: boolean }>> {
+    const now = new Date();
+
     // Get all achievements from database (seeded data)
+    // Filter to only show achievements that are currently valid
     const allAchievements = await prisma.achievement.findMany({
+      where: {
+        AND: [
+          {
+            OR: [{ validFrom: null }, { validFrom: { lte: now } }],
+          },
+          {
+            OR: [{ validUntil: null }, { validUntil: { gte: now } }],
+          },
+        ],
+      },
       orderBy: [{ rarity: 'asc' }, { requirementValue: 'asc' }],
     });
 
@@ -111,6 +124,8 @@ export class AchievementsService {
    * Returns the newly unlocked achievement
    */
   async redeemAchievement(userId: number, achievementId: string): Promise<Achievement> {
+    const now = new Date();
+
     // Check if achievement exists
     const achievement = await prisma.achievement.findUnique({
       where: { id: achievementId },
@@ -118,6 +133,14 @@ export class AchievementsService {
 
     if (!achievement) {
       throw new Error('Achievement not found');
+    }
+
+    // Check if achievement is currently valid (within time window)
+    const isValidFrom = !achievement.validFrom || now >= achievement.validFrom;
+    const isValidUntil = !achievement.validUntil || now <= achievement.validUntil;
+
+    if (!isValidFrom || !isValidUntil) {
+      throw new Error('Achievement is not currently available');
     }
 
     // Check if already unlocked
