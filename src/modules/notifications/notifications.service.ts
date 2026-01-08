@@ -99,8 +99,8 @@ export class NotificationsService {
     const notificationPayload = JSON.stringify({
       title: payload.title,
       body: payload.body,
-      icon: payload.icon || '/icon-192.png',
-      badge: payload.badge || '/icon-192.png',
+      icon: payload.icon || '/pwa-192x192.svg',
+      badge: payload.badge || '/pwa-64x64.svg',
       data: payload.data || {},
     });
 
@@ -124,16 +124,23 @@ export class NotificationsService {
 
           console.info(`[Notifications] Sent to subscription ${sub.id}`);
         } catch (error) {
-          console.error(`[Notifications] Failed to send to subscription ${sub.id}:`, error);
+          console.error(`[Notifications] Failed to send to subscription ${sub.id}`);
 
-          if (error && typeof error === 'object' && 'statusCode' in error) {
-            const statusCode = (error as { statusCode: number }).statusCode;
+          // Log detailed error information
+          if (error && typeof error === 'object') {
+            const statusCode = 'statusCode' in error ? (error as { statusCode: number }).statusCode : undefined;
+            const message = 'message' in error ? (error as { message: string }).message : 'Unknown error';
+            console.error(`[Notifications] Error details: statusCode=${statusCode}, message=${message}`);
+
+            // Delete invalid subscriptions (404/410 = subscription no longer exists)
             if (statusCode === 404 || statusCode === 410) {
               await prisma.pushSubscription.delete({
                 where: { id: sub.id },
               });
               console.info(`[Notifications] Deleted invalid subscription ${sub.id}`);
             }
+          } else {
+            console.error(`[Notifications] Error:`, error);
           }
 
           throw error;
@@ -162,7 +169,8 @@ export class NotificationsService {
     await this.sendToUser(userId, {
       title: 'Challenge Invitation',
       body: `${inviterName} invited you to "${challengeName}"`,
-      icon: '/icon-192.png',
+      icon: '/pwa-192x192.svg',
+      badge: '/pwa-64x64.svg',
       data: {
         type: 'challenge_invite',
         challengeName,
@@ -183,7 +191,8 @@ export class NotificationsService {
     await this.sendToUser(userId, {
       title: 'Challenge Milestone',
       body: `${challengeName}: ${milestone}`,
-      icon: '/icon-192.png',
+      icon: '/pwa-192x192.svg',
+      badge: '/pwa-64x64.svg',
       data: {
         type: 'challenge_progress',
         challengeName,
@@ -201,7 +210,8 @@ export class NotificationsService {
     await this.sendToUser(userId, {
       title: 'Challenge Starting Soon',
       body: `"${challengeName}" starts in 24 hours!`,
-      icon: '/icon-192.png',
+      icon: '/pwa-192x192.svg',
+      badge: '/pwa-64x64.svg',
       data: {
         type: 'challenge_starting',
         challengeName,
@@ -218,7 +228,8 @@ export class NotificationsService {
     await this.sendToUser(userId, {
       title: 'Challenge Ending Soon',
       body: `"${challengeName}" ends in 24 hours!`,
-      icon: '/icon-192.png',
+      icon: '/pwa-192x192.svg',
+      badge: '/pwa-64x64.svg',
       data: {
         type: 'challenge_ending',
         challengeName,

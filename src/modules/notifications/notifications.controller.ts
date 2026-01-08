@@ -3,6 +3,7 @@ import { NotificationsService } from './notifications.service.js';
 import { HttpStatus } from '@shared/types/index.js';
 import type { PushSubscription } from 'web-push';
 import { config } from '@config/env.js';
+import { prisma } from '@shared/utils/index.js';
 
 export class NotificationsController {
   private notificationsService = new NotificationsService();
@@ -166,21 +167,50 @@ export class NotificationsController {
         return;
       }
 
-      await this.notificationsService.sendToUser(req.userId, {
+      const userId = req.userId;
+
+      // Check if user has any subscriptions
+      const subscriptions = await prisma.pushSubscription.findMany({
+        where: { userId },
+      });
+
+      if (subscriptions.length === 0) {
+        res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          error: 'No push subscriptions found for this user',
+          hint: 'Make sure you have enabled notifications in the PWA',
+        });
+        return;
+      }
+
+      console.log(`[Notifications] Sending test to user ${userId} with ${subscriptions.length} subscription(s)`);
+
+      // Log subscription details for debugging
+      subscriptions.forEach((sub, i) => {
+        console.log(`[Notifications] Subscription ${i + 1}: endpoint=${sub.endpoint.substring(0, 50)}...`);
+      });
+
+      // Send test notification
+      await this.notificationsService.sendToUser(userId, {
         title: 'Test Notification',
         body: 'This is a test notification from Kompanion!',
         icon: '/pwa-192x192.svg',
+        badge: '/pwa-64x64.svg',
         data: {
           type: 'test',
           timestamp: new Date().toISOString(),
         },
       });
 
+      console.log('[Notifications] Test notification sent successfully');
+
       res.json({
         success: true,
         message: 'Test notification sent',
+        subscriptionCount: subscriptions.length,
       });
     } catch (error) {
+      console.error('[Notifications] Test notification failed:', error);
       next(error);
     }
   };
