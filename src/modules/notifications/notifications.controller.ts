@@ -183,11 +183,15 @@ export class NotificationsController {
         return;
       }
 
-      console.log(`[Notifications] Sending test to user ${userId} with ${subscriptions.length} subscription(s)`);
+      console.info(
+        `[Notifications] Sending test to user ${userId} with ${subscriptions.length} subscription(s)`
+      );
 
       // Log subscription details for debugging
       subscriptions.forEach((sub, i) => {
-        console.log(`[Notifications] Subscription ${i + 1}: endpoint=${sub.endpoint.substring(0, 50)}...`);
+        console.info(
+          `[Notifications] Subscription ${i + 1}: endpoint=${sub.endpoint.substring(0, 50)}...`
+        );
       });
 
       // Send test notification
@@ -202,7 +206,7 @@ export class NotificationsController {
         },
       });
 
-      console.log('[Notifications] Test notification sent successfully');
+      console.info('[Notifications] Test notification sent successfully');
 
       res.json({
         success: true,

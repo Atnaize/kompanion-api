@@ -187,6 +187,7 @@ export class AuthController {
         select: {
           id: true,
           stravaId: true,
+          isAdmin: true,
         },
       });
 

@@ -128,9 +128,13 @@ export class NotificationsService {
 
           // Log detailed error information
           if (error && typeof error === 'object') {
-            const statusCode = 'statusCode' in error ? (error as { statusCode: number }).statusCode : undefined;
-            const message = 'message' in error ? (error as { message: string }).message : 'Unknown error';
-            console.error(`[Notifications] Error details: statusCode=${statusCode}, message=${message}`);
+            const statusCode =
+              'statusCode' in error ? (error as { statusCode: number }).statusCode : undefined;
+            const message =
+              'message' in error ? (error as { message: string }).message : 'Unknown error';
+            console.error(
+              `[Notifications] Error details: statusCode=${statusCode}, message=${message}`
+            );
 
             // Delete invalid subscriptions (404/410 = subscription no longer exists)
             if (statusCode === 404 || statusCode === 410) {
