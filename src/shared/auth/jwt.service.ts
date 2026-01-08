@@ -4,6 +4,7 @@ import { config } from '@config/env.js';
 interface JwtPayload {
   userId: number;
   stravaId: number;
+  isAdmin: boolean;
 }
 
 export class JwtService {

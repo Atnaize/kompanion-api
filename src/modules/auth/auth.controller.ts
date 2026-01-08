@@ -58,6 +58,7 @@ export class AuthController {
       const accessToken = jwtService.generateAccessToken({
         userId: user.id,
         stravaId: user.stravaId,
+        isAdmin: user.isAdmin,
       });
 
       // Generate refresh token (90 days)
@@ -120,6 +121,7 @@ export class AuthController {
           lastname: true,
           profile: true,
           lastSyncedAt: true,
+          isAdmin: true,
         },
       });
 
@@ -141,6 +143,7 @@ export class AuthController {
           lastname: dbUser.lastname,
           profile: dbUser.profile,
           lastSyncedAt: dbUser.lastSyncedAt?.toISOString(),
+          isAdmin: dbUser.isAdmin,
         },
       });
     } catch (error) {
@@ -199,6 +202,7 @@ export class AuthController {
       const accessToken = jwtService.generateAccessToken({
         userId: user.id,
         stravaId: user.stravaId,
+        isAdmin: user.isAdmin,
       });
 
       res.json({

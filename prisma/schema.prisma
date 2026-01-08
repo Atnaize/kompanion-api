@@ -24,6 +24,7 @@ model User {
   tokenExpiresAt        BigInt
   lastSyncedAt          DateTime?
   achievementStartDate  DateTime? // When user started tracking achievements
+  isAdmin               Boolean   @default(false) // Admin users have access to admin panel
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 

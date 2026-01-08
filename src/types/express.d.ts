@@ -4,5 +4,6 @@ declare namespace Express {
   interface Request {
     userId?: number;
     stravaId?: number;
+    isAdmin?: boolean;
   }
 }

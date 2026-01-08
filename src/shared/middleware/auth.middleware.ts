@@ -37,6 +37,7 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction): vo
   // Attach user info to request
   req.userId = payload.userId;
   req.stravaId = payload.stravaId;
+  req.isAdmin = payload.isAdmin;
 
   next();
 };
@@ -50,7 +51,30 @@ export const optionalAuth = (req: Request, _res: Response, next: NextFunction): 
     if (payload) {
       req.userId = payload.userId;
       req.stravaId = payload.stravaId;
+      req.isAdmin = payload.isAdmin;
     }
+  }
+
+  next();
+};
+
+export const requireAdmin = (req: Request, res: Response, next: NextFunction): void => {
+  // First, ensure user is authenticated (requireAuth should be called before this)
+  if (!req.userId) {
+    res.status(HttpStatus.UNAUTHORIZED).json({
+      success: false,
+      error: 'Authentication required',
+    });
+    return;
+  }
+
+  // Check if user is admin
+  if (!req.isAdmin) {
+    res.status(HttpStatus.FORBIDDEN).json({
+      success: false,
+      error: 'Admin access required',
+    });
+    return;
   }
 
   next();

@@ -142,6 +142,7 @@ export class AuthService {
       lastname: user.lastname,
       profile: user.profile,
       lastSyncedAt: user.lastSyncedAt,
+      isAdmin: user.isAdmin,
     };
   }
 
@@ -157,6 +158,7 @@ export class AuthService {
     refreshToken: string;
     tokenExpiresAt: bigint;
     lastSyncedAt: Date | null;
+    isAdmin: boolean;
     createdAt: Date;
     updatedAt: Date;
   }): User {
@@ -172,6 +174,7 @@ export class AuthService {
       refreshToken: dbUser.refreshToken,
       tokenExpiresAt: Number(dbUser.tokenExpiresAt),
       lastSyncedAt: dbUser.lastSyncedAt?.toISOString(),
+      isAdmin: dbUser.isAdmin,
       createdAt: dbUser.createdAt.toISOString(),
       updatedAt: dbUser.updatedAt.toISOString(),
     };

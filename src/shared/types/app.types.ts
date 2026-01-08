@@ -14,6 +14,7 @@ export interface User {
   refreshToken: string;
   tokenExpiresAt: number;
   lastSyncedAt?: string;
+  isAdmin: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -26,6 +27,7 @@ export interface UserSession {
   lastname: string;
   profile: string;
   lastSyncedAt?: string;
+  isAdmin: boolean;
 }
 
 export interface Achievement {
