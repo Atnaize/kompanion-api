@@ -1,0 +1,499 @@
+{
+  "title": "Programme d'Entraînement Marathon de Charleroi - GAG",
+  "start_date": "2026-01-26",
+  "objective": "Marathon de Charleroi",
+  "duration_weeks": 14,
+  "weeks": [
+    {
+      "week": 1,
+      "start_date": "2026-01-26",
+      "end_date": "2026-02-01",
+      "sessions": [
+        {
+          "date": "2026-01-26",
+          "length": "50m",
+          "pace": "E2",
+          "extra": "10-15' éducatifs",
+          "day": 1
+        },
+        {
+          "date": "2026-01-28",
+          "length": "30m",
+          "pace": "E2",
+          "extra": "éducatifs + Vitesse : 7 x (1' 45\" en VMA/R=1' 30\" inactif) + 10' E2 + étirements",
+          "day": 2
+        },
+        {
+          "date": "2026-01-30",
+          "length": "60m",
+          "pace": "E2",
+          "extra": "",
+          "day": 3
+        },
+        {
+          "date": "2026-02-01",
+          "length": "75m",
+          "pace": "E1",
+          "extra": "",
+          "day": 4
+        }
+      ]
+    },
+    {
+      "week": 2,
+      "start_date": "2026-02-02",
+      "end_date": "2026-02-08",
+      "sessions": [
+        {
+          "date": "2026-02-02",
+          "length": "50m",
+          "pace": "E2",
+          "extra": "10-15' éducatifs",
+          "day": 1
+        },
+        {
+          "date": "2026-02-04",
+          "length": "30m",
+          "pace": "E2",
+          "extra": "éducatifs + Intermittent : 2 x 6 x (30\" VMA/30\" E1), R intersérie=2' inactif + 10' E2 + étirements",
+          "day": 2
+        },
+        {
+          "date": "2026-02-06",
+          "length": "60m",
+          "pace": "E2",
+          "extra": "",
+          "day": 3
+        },
+        {
+          "date": "2026-02-08",
+          "length": "90m",
+          "pace": "E1",
+          "extra": "",
+          "day": 4
+        }
+      ]
+    },
+    {
+      "week": 3,
+      "start_date": "2026-02-09",
+      "end_date": "2026-02-15",
+      "sessions": [
+        {
+          "date": "2026-02-09",
+          "length": "60m",
+          "pace": "E2",
+          "extra": "10-15' éducatifs",
+          "day": 1
+        },
+        {
+          "date": "2026-02-11",
+          "length": "30m",
+          "pace": "E2",
+          "extra": "éducatifs + Vitesse : 7 x (3' en VMA/R=2' 30\" inactif) + 10' E2 + étirements",
+          "day": 2
+        },
+        {
+          "date": "2026-02-13",
+          "length": "30m",
+          "pace": "E2",
+          "extra": "éducatifs + Vitesse : 8 x (200 mètres à 110 % de VMA/R=1' 30\" inactif) + 10' E2 + étirements",
+          "day": 3
+        },
+        {
+          "date": "2026-02-15",
+          "length": "100m",
+          "pace": "E1",
+          "extra": "",
+          "day": 4
+        }
+      ]
+    },
+    {
+      "week": 4,
+      "start_date": "2026-02-16",
+      "end_date": "2026-02-22",
+      "sessions": [
+        {
+          "date": "2026-02-16",
+          "length": "50m",
+          "pace": "E2",
+          "extra": "10-15' éducatifs",
+          "day": 1
+        },
+        {
+          "date": "2026-02-18",
+          "length": "30m",
+          "pace": "E2",
+          "extra": "éducatifs + Vitesse : 6 x (4' en VMA/R=3' inactif) + 10' E2 + étirements",
+          "day": 2
+        },
+        {
+          "date": "2026-02-20",
+          "length": "50m",
+          "pace": "E2",
+          "extra": "",
+          "day": 3
+        },
+        {
+          "date": "2026-02-22",
+          "length": "120m",
+          "pace": "E1",
+          "extra": "",
+          "day": 4
+        }
+      ]
+    },
+    {
+      "week": 5,
+      "start_date": "2026-02-23",
+      "end_date": "2026-03-01",
+      "sessions": [
+        {
+          "date": "2026-02-23",
+          "length": "60m",
+          "pace": "E2",
+          "extra": "10-15' éducatifs",
+          "day": 1
+        },
+        {
+          "date": "2026-02-25",
+          "length": "30m",
+          "pace": "E2",
+          "extra": "éducatifs + Allure marathon : 4 x (4' en allure marathon/2' E1) + 10' E2 + étirements",
+          "day": 2
+        },
+        {
+          "date": "2026-02-27",
+          "length": "60m",
+          "pace": "E2",
+          "extra": "",
+          "day": 3
+        },
+        {
+          "date": "2026-03-01",
+          "length": "120m",
+          "pace": "E1",
+          "extra": "",
+          "day": 4
+        }
+      ]
+    },
+    {
+      "week": 6,
+      "start_date": "2026-03-02",
+      "end_date": "2026-03-08",
+      "sessions": [
+        {
+          "date": "2026-03-02",
+          "length": "50m",
+          "pace": "E2",
+          "extra": "10-15' éducatifs",
+          "day": 1
+        },
+        {
+          "date": "2026-03-04",
+          "length": "30m",
+          "pace": "E2",
+          "extra": "éducatifs + Allure marathon : 3 x (7' en allure marathon/3' E1) + 10' E2 + étirements",
+          "day": 2
+        },
+        {
+          "date": "2026-03-06",
+          "length": "30m",
+          "pace": "E2",
+          "extra": "éducatifs + Vitesse : 7 x (400 mètres à 110 % de VMA/R=2' 30\" inactif) + 10' E2 + étirements",
+          "day": 3
+        },
+        {
+          "date": "2026-03-08",
+          "length": "120m",
+          "pace": "E1",
+          "extra": "",
+          "day": 4
+        }
+      ]
+    },
+    {
+      "week": 7,
+      "start_date": "2026-03-09",
+      "end_date": "2026-03-15",
+      "sessions": [
+        {
+          "date": "2026-03-09",
+          "length": "60m",
+          "pace": "E2",
+          "extra": "10-15' éducatifs",
+          "day": 1
+        },
+        {
+          "date": "2026-03-11",
+          "length": "30m",
+          "pace": "E2",
+          "extra": "éducatifs + Allure marathon : 3 x (7' en allure marathon/3' E1) + 10' E2 + étirements",
+          "day": 2
+        },
+        {
+          "date": "2026-03-13",
+          "length": "60m",
+          "pace": "E2",
+          "extra": "",
+          "day": 3
+        },
+        {
+          "date": "2026-03-15",
+          "length": "110m",
+          "pace": "E1",
+          "extra": "",
+          "day": 4
+        }
+      ]
+    },
+    {
+      "week": 8,
+      "start_date": "2026-03-16",
+      "end_date": "2026-03-22",
+      "sessions": [
+        {
+          "date": "2026-03-16",
+          "length": "50m",
+          "pace": "E2",
+          "extra": "10-15' éducatifs",
+          "day": 1
+        },
+        {
+          "date": "2026-03-18",
+          "length": "30m",
+          "pace": "E2",
+          "extra": "éducatifs + Intermittent : 2 x 5 x (60\" VMA/60\" E1), R intersérie=3' inactif + 10' E2 + étirements",
+          "day": 2
+        },
+        {
+          "date": "2026-03-20",
+          "length": "45m",
+          "pace": "E2",
+          "extra": "y incorporer 3 déboulés de 80 mètres (retour en marchant)",
+          "day": 3
+        },
+        {
+          "date": "2026-03-22",
+          "length": "semi-marathon",
+          "pace": "",
+          "extra": "Semi-marathon test si possible",
+          "day": 4
+        }
+      ]
+    },
+    {
+      "week": 9,
+      "start_date": "2026-03-23",
+      "end_date": "2026-03-29",
+      "sessions": [
+        {
+          "date": "2026-03-23",
+          "length": "60m",
+          "pace": "E2",
+          "extra": "10-15' éducatifs",
+          "day": 1
+        },
+        {
+          "date": "2026-03-25",
+          "length": "30m",
+          "pace": "E2",
+          "extra": "éducatifs + Allure marathon : 3 x (10' en allure marathon/3' E1) + 10' E2 + étirements",
+          "day": 2
+        },
+        {
+          "date": "2026-03-27",
+          "length": "30m",
+          "pace": "E2",
+          "extra": "éducatifs + Intermittent : 2 x 9 x (20\" VMA/20\" E1), R interséries=2' inactif + 10' E2 + étirements",
+          "day": 3
+        },
+        {
+          "date": "2026-03-29",
+          "length": "45-60m",
+          "pace": "allure marathon",
+          "extra": "à  (après 10' E2 et terminer par 5-10' E1)",
+          "day": 4
+        }
+      ]
+    },
+    {
+      "week": 10,
+      "start_date": "2026-03-30",
+      "end_date": "2026-04-05",
+      "sessions": [
+        {
+          "date": "2026-03-30",
+          "length": "60m",
+          "pace": "E2",
+          "extra": "10-15' éducatifs",
+          "day": 1
+        },
+        {
+          "date": "2026-04-01",
+          "length": "30m",
+          "pace": "E2",
+          "extra": "éducatifs + Allure marathon : 2 x (15' en allure marathon/4' E1) + 10' E2 + étirements",
+          "day": 2
+        },
+        {
+          "date": "2026-04-03",
+          "length": "30m",
+          "pace": "E2",
+          "extra": "éducatifs + Vitesse : 6 x (900 m en VMA/R=3' inactif) + 10' E2 + étirements",
+          "day": 3
+        },
+        {
+          "date": "2026-04-05",
+          "length": "130m",
+          "pace": "E1",
+          "extra": "",
+          "day": 4
+        }
+      ]
+    },
+    {
+      "week": 11,
+      "start_date": "2026-04-06",
+      "end_date": "2026-04-12",
+      "sessions": [
+        {
+          "date": "2026-04-06",
+          "length": "60m",
+          "pace": "E2",
+          "extra": "10-15' éducatifs",
+          "day": 1
+        },
+        {
+          "date": "2026-04-08",
+          "length": "30m",
+          "pace": "E2",
+          "extra": "éducatifs + Allure marathon : 6 x (5' en allure marathon/2' E1) + 10' E2 + étirements",
+          "day": 2
+        },
+        {
+          "date": "2026-04-10",
+          "length": "45m",
+          "pace": "E2",
+          "extra": "",
+          "day": 3
+        },
+        {
+          "date": "2026-04-12",
+          "length": "110m",
+          "pace": "E1",
+          "extra": "",
+          "day": 4
+        }
+      ]
+    },
+    {
+      "week": 12,
+      "start_date": "2026-04-13",
+      "end_date": "2026-04-19",
+      "sessions": [
+        {
+          "date": "2026-04-13",
+          "length": "45m",
+          "pace": "E2",
+          "extra": "y incorporer 3 déboulés de 80 mètres (retour en marchant)",
+          "day": 1
+        },
+        {
+          "date": "2026-04-15",
+          "length": "30m",
+          "pace": "E2",
+          "extra": "éducatifs + Intermittent : 2 x 5 x (60\" VMA/60\" E1), R intersérie=3' inactif + 10' E2 + étirements",
+          "day": 2
+        },
+        {
+          "date": "2026-04-17",
+          "length": "",
+          "pace": "",
+          "extra": "Repos",
+          "day": 3
+        },
+        {
+          "date": "2026-04-19",
+          "length": "75m",
+          "pace": "E1",
+          "extra": "",
+          "day": 4
+        }
+      ]
+    },
+    {
+      "week": 13,
+      "start_date": "2026-04-20",
+      "end_date": "2026-04-26",
+      "sessions": [
+        {
+          "date": "2026-04-20",
+          "length": "40m",
+          "pace": "E2",
+          "extra": "y incorporer 3 déboulés de 80 mètres (retour en marchant)",
+          "day": 1
+        },
+        {
+          "date": "2026-04-22",
+          "length": "20m",
+          "pace": "E2",
+          "extra": "éducatifs + Intermittent : 1 x 8 x (30\" allure marathon/30\" E1) + 10' E2 + étirements",
+          "day": 2
+        },
+        {
+          "date": "2026-04-24",
+          "length": "20-30m",
+          "pace": "E1",
+          "extra": "",
+          "day": 3
+        },
+        {
+          "date": "2026-04-26",
+          "length": "marathon",
+          "pace": "",
+          "extra": "MARATHON DE CHARLEROI",
+          "day": 4
+        }
+      ]
+    },
+    {
+      "week": 14,
+      "start_date": "2026-04-27",
+      "end_date": "2026-05-03",
+      "sessions": [
+        {
+          "date": "2026-04-27",
+          "length": "40m",
+          "pace": "E1",
+          "extra": "",
+          "day": 1
+        },
+        {
+          "date": "2026-04-29",
+          "length": "15m",
+          "pace": "E2",
+          "extra": "éducatifs + 20-30' étirements + 10' E2",
+          "day": 2
+        },
+        {
+          "date": "2026-05-01",
+          "length": "45m",
+          "pace": "E1",
+          "extra": "",
+          "day": 3
+        },
+        {
+          "date": "2026-05-03",
+          "length": "",
+          "pace": "",
+          "extra": "Repos",
+          "day": 4
+        }
+      ]
+    }
+  ],
+  "total_sessions": 56
+}
