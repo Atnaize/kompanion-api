@@ -3,9 +3,78 @@ import type { UserStats } from '@shared/types/index.js';
 
 export class AchievementProgressService {
   /**
-   * Update progress for all achievements after stats are calculated
+   * Get stats based on activities since achievementStartDate (for achievements only)
    */
-  async updateAllProgress(userId: number, stats: UserStats): Promise<void> {
+  async getAchievementStats(userId: number): Promise<UserStats> {
+    // Get user's achievement start date
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { achievementStartDate: true, createdAt: true },
+    });
+
+    // Use achievementStartDate if set, otherwise fall back to createdAt
+    const startDate = user.achievementStartDate || user.createdAt;
+
+    // Get activities for achievement tracking (only since achievementStartDate)
+    const activities = await prisma.activity.findMany({
+      where: {
+        userId,
+        startDateLocal: {
+          gte: startDate,
+        },
+      },
+      orderBy: { startDate: 'asc' },
+    });
+
+    // Calculate stats from filtered activities
+    const totalDistance = activities.reduce((sum, a) => sum + a.distance, 0);
+    const totalElevation = activities.reduce((sum, a) => sum + a.totalElevationGain, 0);
+    const totalTime = activities.reduce((sum, a) => sum + a.movingTime, 0);
+    const totalActivities = activities.length;
+
+    // Calculate by activity type
+    const byActivityType: UserStats['byActivityType'] = {};
+
+    for (const activity of activities) {
+      if (!byActivityType[activity.type]) {
+        byActivityType[activity.type] = {
+          count: 0,
+          distance: 0,
+          elevation: 0,
+          time: 0,
+        };
+      }
+
+      byActivityType[activity.type].count += 1;
+      byActivityType[activity.type].distance += activity.distance;
+      byActivityType[activity.type].elevation += activity.totalElevationGain;
+      byActivityType[activity.type].time += activity.movingTime;
+    }
+
+    // Calculate current streak
+    const activityDates = activities.map((a) => a.startDateLocal.toISOString());
+    const currentStreak = this.calculateStreak(activityDates);
+
+    return {
+      userId,
+      totalDistance: Math.round(totalDistance),
+      totalElevation: Math.round(totalElevation),
+      totalActivities,
+      totalTime,
+      currentStreak,
+      longestStreak: 0, // Not needed for achievements
+      byActivityType,
+    };
+  }
+
+  /**
+   * Update progress for all achievements based on activities since achievementStartDate
+   */
+  async updateAllProgress(userId: number): Promise<void> {
+    // Get filtered stats (only activities since achievementStartDate)
+    const stats = await this.getAchievementStats(userId);
+
+    // Update achievement progress for each achievement
     const achievements = await prisma.achievement.findMany();
 
     for (const achievement of achievements) {
@@ -29,6 +98,51 @@ export class AchievementProgressService {
         update: { currentValue, percentage },
       });
     }
+  }
+
+  /**
+   * Calculate current activity streak from sorted dates
+   */
+  private calculateStreak(sortedDates: string[]): number {
+    if (sortedDates.length === 0) {
+      return 0;
+    }
+
+    let streak = 1;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const latestDate = new Date(sortedDates[sortedDates.length - 1]);
+    latestDate.setHours(0, 0, 0, 0);
+
+    const daysDiff = Math.floor((today.getTime() - latestDate.getTime()) / (1000 * 60 * 60 * 24));
+
+    // Streak broken if more than 1 day gap
+    if (daysDiff > 1) {
+      return 0;
+    }
+
+    // Count consecutive days backwards
+    for (let i = sortedDates.length - 1; i > 0; i--) {
+      const currentDate = new Date(sortedDates[i]);
+      const previousDate = new Date(sortedDates[i - 1]);
+
+      currentDate.setHours(0, 0, 0, 0);
+      previousDate.setHours(0, 0, 0, 0);
+
+      const diff = Math.floor(
+        (currentDate.getTime() - previousDate.getTime()) / (1000 * 60 * 60 * 24)
+      );
+
+      if (diff === 1) {
+        streak++;
+      } else if (diff > 1) {
+        break;
+      }
+      // diff === 0 means same day, don't increment streak
+    }
+
+    return streak;
   }
 
   /**

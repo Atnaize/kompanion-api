@@ -4,27 +4,16 @@ import { AchievementProgressService } from '../achievements/achievement-progress
 
 export class StatsService {
   private achievementProgressService = new AchievementProgressService();
+
   /**
-   * Calculate and store user stats from activities
-   * Returns fresh calculated stats
+   * Calculate and store user stats from ALL activities
+   * Returns fresh calculated stats (no filtering by achievementStartDate)
    */
   async calculateUserStats(userId: number): Promise<UserStats> {
-    // Get user to determine achievement start date
-    const user = await prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-      select: { achievementStartDate: true, createdAt: true },
-    });
-
-    // Use achievementStartDate if set, otherwise fall back to createdAt
-    const startDate = user.achievementStartDate || user.createdAt;
-
-    // Get all activities for the user (only after achievement tracking started)
+    // Get ALL activities for the user (no filtering by achievementStartDate)
     const activities = await prisma.activity.findMany({
       where: {
         userId,
-        startDateLocal: {
-          gte: startDate,
-        },
       },
       orderBy: { startDate: 'asc' },
     });
@@ -122,8 +111,8 @@ export class StatsService {
       byActivityType,
     };
 
-    // Update achievement progress after stats calculation
-    await this.achievementProgressService.updateAllProgress(userId, stats);
+    // Update achievement progress (queries activities with achievementStartDate filter)
+    await this.achievementProgressService.updateAllProgress(userId);
 
     return stats;
   }

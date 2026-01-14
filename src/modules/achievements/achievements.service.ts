@@ -1,9 +1,9 @@
 import { prisma } from '@shared/utils/index.js';
-import { StatsService } from '../stats/stats.service.js';
+import { AchievementProgressService } from './achievement-progress.service.js';
 import type { Achievement, UserStats } from '@shared/types/index.js';
 
 export class AchievementsService {
-  private statsService = new StatsService();
+  private achievementProgressService = new AchievementProgressService();
 
   /**
    * Get all achievements for a user with their status
@@ -50,11 +50,8 @@ export class AchievementsService {
 
     const progressMap = new Map(progressRecords.map((p) => [p.achievementId, p]));
 
-    // Get user stats to check which are redeemable
-    const stats = await this.statsService.getUserStats(userId);
-
-    // If no stats yet, calculate them
-    const userStats = stats || (await this.statsService.calculateUserStats(userId));
+    // Get user stats (filtered by achievementStartDate) to check which are redeemable
+    const userStats = await this.achievementProgressService.getAchievementStats(userId);
 
     // Map to Achievement type with status
     return allAchievements.map((achievement) => {
@@ -98,9 +95,8 @@ export class AchievementsService {
   async getRedeemableAchievements(userId: number): Promise<Achievement[]> {
     const allAchievements = await this.getUserAchievements(userId);
 
-    // Get user stats
-    const stats = await this.statsService.getUserStats(userId);
-    const userStats = stats || (await this.statsService.calculateUserStats(userId));
+    // Get user stats (filtered by achievementStartDate)
+    const userStats = await this.achievementProgressService.getAchievementStats(userId);
 
     return allAchievements.filter((achievement) => {
       const isUnlocked = !!achievement.unlockedAt;
@@ -157,9 +153,8 @@ export class AchievementsService {
       throw new Error('Achievement already unlocked');
     }
 
-    // Check if user meets requirements
-    const stats = await this.statsService.getUserStats(userId);
-    const userStats = stats || (await this.statsService.calculateUserStats(userId));
+    // Check if user meets requirements (filtered by achievementStartDate)
+    const userStats = await this.achievementProgressService.getAchievementStats(userId);
 
     if (!this.isAchievementUnlocked(achievement, userStats)) {
       throw new Error('Achievement requirements not met');
