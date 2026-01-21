@@ -2,12 +2,14 @@ import axios from 'axios';
 import { config } from '@config/env.js';
 import { prisma } from '@shared/utils/index.js';
 import { AuthService } from '../auth/auth.service.js';
+import { ChallengeService } from '../challenges/challenge.service.js';
 import type { StravaActivity, StravaDetailedActivity, User } from '@shared/types/index.js';
 import { AppError } from '@shared/middleware/index.js';
 import { HttpStatus } from '@shared/types/index.js';
 
 export class ActivitiesService {
   private authService = new AuthService();
+  private challengeService = new ChallengeService();
 
   async fetchActivities(
     user: User,
@@ -44,9 +46,13 @@ export class ActivitiesService {
     }
   }
 
-  async syncActivities(
-    user: User
-  ): Promise<{ synced: number; total: number; isIncremental: boolean }> {
+  async syncActivities(user: User): Promise<{
+    synced: number;
+    total: number;
+    isIncremental: boolean;
+    challengesSynced: number;
+    challengeActivitiesAdded: number;
+  }> {
     const isIncremental = !!user.lastSyncedAt;
     const after = user.lastSyncedAt
       ? Math.floor(new Date(user.lastSyncedAt).getTime() / 1000)
@@ -114,10 +120,15 @@ export class ActivitiesService {
       });
     }
 
+    // Sync new activities to active challenges
+    const challengeSync = await this.challengeService.syncActiveChallenges(user.id);
+
     return {
       synced: newActivities.length,
       total: allActivities.length,
       isIncremental,
+      challengesSynced: challengeSync.synced,
+      challengeActivitiesAdded: challengeSync.activitiesAdded,
     };
   }
 
@@ -129,7 +140,13 @@ export class ActivitiesService {
       total?: number;
       message?: string;
     }) => void
-  ): Promise<{ synced: number; total: number; isIncremental: boolean }> {
+  ): Promise<{
+    synced: number;
+    total: number;
+    isIncremental: boolean;
+    challengesSynced: number;
+    challengeActivitiesAdded: number;
+  }> {
     const isIncremental = !!user.lastSyncedAt;
     const after = user.lastSyncedAt
       ? Math.floor(new Date(user.lastSyncedAt).getTime() / 1000)
@@ -227,10 +244,15 @@ export class ActivitiesService {
       });
     }
 
+    // Sync new activities to active challenges
+    const challengeSync = await this.challengeService.syncActiveChallenges(user.id);
+
     return {
       synced: newActivities.length,
       total: allActivities.length,
       isIncremental,
+      challengesSynced: challengeSync.synced,
+      challengeActivitiesAdded: challengeSync.activitiesAdded,
     };
   }
 

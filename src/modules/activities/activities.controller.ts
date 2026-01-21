@@ -91,6 +91,8 @@ export class ActivitiesController {
         current?: number;
         total?: number;
         message?: string;
+        challengesSynced?: number;
+        challengeActivitiesAdded?: number;
       }): void => {
         res.write(`data: ${JSON.stringify(data)}\n\n`);
       };
@@ -102,6 +104,8 @@ export class ActivitiesController {
           type: 'complete',
           total: result.synced,
           message: `Synced ${result.synced} activities`,
+          challengesSynced: result.challengesSynced,
+          challengeActivitiesAdded: result.challengeActivitiesAdded,
         });
 
         res.end();
