@@ -80,6 +80,8 @@ model Activity {
   @@index([userId])
   @@index([startDate])
   @@index([type])
+  @@index([userId, startDate])
+  @@index([userId, startDateLocal])
   @@map("activities")
 }
 
@@ -102,6 +104,7 @@ model Achievement {
   unlockedBy      UserAchievement[]
   progress        AchievementProgress[]
 
+  @@index([validFrom, validUntil])
   @@map("achievements")
 }
 
@@ -138,6 +141,7 @@ model AchievementProgress {
 
   @@unique([userId, achievementId])
   @@index([userId])
+  @@index([achievementId])
   @@map("achievement_progress")
 }
 
@@ -289,6 +293,7 @@ model ChallengeParticipant {
   @@unique([challengeId, userId])
   @@index([userId])
   @@index([challengeId, status])
+  @@index([userId, status])
   @@map("challenge_participants")
 }
 
@@ -312,6 +317,7 @@ model ChallengeActivity {
   @@unique([challengeId, activityId]) // Prevent duplicates
   @@index([challengeId, userId])
   @@index([challengeId, recordedAt])
+  @@index([userId])
   @@map("challenge_activities")
 }
 
