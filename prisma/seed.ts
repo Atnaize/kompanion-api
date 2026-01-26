@@ -44,9 +44,19 @@ async function seedAchievements(): Promise<void> {
   // Find achievements to remove (in DB but not in code)
   const toRemove = existingIds.filter((id) => !definedIds.includes(id));
 
-  // Remove obsolete achievements
+  // Remove obsolete achievements (and their related records)
   if (toRemove.length > 0) {
     console.log(`   🗑️  Removing ${toRemove.length} obsolete achievements: ${toRemove.join(', ')}`);
+
+    // First delete related records (foreign key constraints)
+    await prisma.achievementProgress.deleteMany({
+      where: { achievementId: { in: toRemove } },
+    });
+    await prisma.userAchievement.deleteMany({
+      where: { achievementId: { in: toRemove } },
+    });
+
+    // Now delete the achievements
     await prisma.achievement.deleteMany({
       where: { id: { in: toRemove } },
     });
