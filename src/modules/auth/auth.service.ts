@@ -61,7 +61,7 @@ export class AuthService {
       if (axios.isAxiosError(error)) {
         console.error('[Auth] Strava token refresh failed:', {
           status: error.response?.status,
-          data: error.response?.data,
+          data: error.response?.data as unknown,
         });
 
         if (error.response?.status === 400 || error.response?.status === 401) {
@@ -72,10 +72,7 @@ export class AuthService {
         }
 
         if (error.response?.status === 429) {
-          throw new AppError(
-            429,
-            'Strava API rate limit exceeded. Please try again later.'
-          );
+          throw new AppError(429, 'Strava API rate limit exceeded. Please try again later.');
         }
       }
 

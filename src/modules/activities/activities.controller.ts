@@ -63,7 +63,12 @@ export class ActivitiesController {
 
   syncWithProgress = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      console.info('[Sync] Starting sync with progress - stravaId:', req.stravaId, 'userId:', req.userId);
+      console.info(
+        '[Sync] Starting sync with progress - stravaId:',
+        req.stravaId,
+        'userId:',
+        req.userId
+      );
 
       if (!req.stravaId) {
         console.warn('[Sync] Failed: stravaId not found in request');

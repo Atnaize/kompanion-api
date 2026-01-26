@@ -44,7 +44,10 @@ export class ActivitiesService {
       console.info('[Fetch] Got', response.data.length, 'activities from Strava');
       return response.data;
     } catch (error) {
-      console.error('[Fetch] Error fetching activities:', error instanceof Error ? error.message : error);
+      console.error(
+        '[Fetch] Error fetching activities:',
+        error instanceof Error ? error.message : error
+      );
       if (error instanceof AppError) {
         throw error;
       }
