@@ -7,6 +7,18 @@ import type {
   ParticipantStatus,
 } from '@shared/types/index.js';
 import type { Prisma } from '@prisma/client';
+import { NotificationsService } from '../notifications/notifications.service.js';
+
+interface AddedActivityInfo {
+  userId: number;
+  activityCount: number;
+  totalDistance: number;
+}
+
+interface CountRetroactiveResult {
+  totalAdded: number;
+  addedByUser: Map<number, AddedActivityInfo>;
+}
 
 interface CreateChallengeData {
   creatorId: number;
@@ -347,6 +359,7 @@ export class ChallengeService {
     });
 
     // Retroactively count activities that occurred during the challenge period
+    // No notifications for initial retroactive sync when starting a challenge
     await this.countRetroactiveActivities(
       challengeId,
       challenge.startDate,
@@ -372,13 +385,19 @@ export class ChallengeService {
   /**
    * Count and add activities that occurred during the challenge period
    * This is called when a challenge is started to include past activities
+   * Returns information about which activities were added, grouped by user
    */
   private async countRetroactiveActivities(
     challengeId: string,
     startDate: Date,
     endDate: Date,
     participantUserIds: number[]
-  ): Promise<void> {
+  ): Promise<CountRetroactiveResult> {
+    const result: CountRetroactiveResult = {
+      totalAdded: 0,
+      addedByUser: new Map(),
+    };
+
     // Find all activities for accepted participants within the challenge date range
     const activities = await prisma.activity.findMany({
       where: {
@@ -444,6 +463,17 @@ export class ChallengeService {
           },
         });
 
+        // Track added activities by user
+        result.totalAdded++;
+        const userInfo = result.addedByUser.get(activity.userId) || {
+          userId: activity.userId,
+          activityCount: 0,
+          totalDistance: 0,
+        };
+        userInfo.activityCount++;
+        userInfo.totalDistance += activity.distance;
+        result.addedByUser.set(activity.userId, userInfo);
+
         console.info(
           `[Challenge ${challengeId}] Added retroactive activity ${activity.id} for user ${activity.userId}`
         );
@@ -454,6 +484,8 @@ export class ChallengeService {
         );
       }
     }
+
+    return result;
   }
 
   /**
@@ -544,11 +576,20 @@ export class ChallengeService {
   /**
    * Sync all activities for active challenges
    * This recalculates all participant progress based on current activities
+   * Notifies other participants when the syncing user adds activities
    */
   async syncActiveChallenges(userId: number): Promise<{
     synced: number;
     activitiesAdded: number;
   }> {
+    const notificationsService = new NotificationsService();
+
+    // Get the syncing user's info for notifications
+    const syncingUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, firstname: true, lastname: true },
+    });
+
     // Get all active challenges the user is participating in
     const challenges = await prisma.challenge.findMany({
       where: {
@@ -563,6 +604,11 @@ export class ChallengeService {
       include: {
         participants: {
           where: { status: 'accepted' },
+          include: {
+            user: {
+              select: { id: true, firstname: true },
+            },
+          },
         },
       },
     });
@@ -574,22 +620,43 @@ export class ChallengeService {
     let totalActivitiesAdded = 0;
 
     for (const challenge of challenges) {
-      const beforeCount = await prisma.challengeActivity.count({
-        where: { challengeId: challenge.id },
-      });
-
-      await this.countRetroactiveActivities(
+      const result = await this.countRetroactiveActivities(
         challenge.id,
         challenge.startDate,
         challenge.endDate,
         challenge.participants.map((p) => p.userId)
       );
 
-      const afterCount = await prisma.challengeActivity.count({
-        where: { challengeId: challenge.id },
-      });
+      totalActivitiesAdded += result.totalAdded;
 
-      totalActivitiesAdded += afterCount - beforeCount;
+      // Check if the syncing user added any activities
+      const userAddedInfo = result.addedByUser.get(userId);
+
+      if (userAddedInfo && userAddedInfo.activityCount > 0 && syncingUser) {
+        // Notify other participants in this challenge
+        const otherParticipants = challenge.participants.filter((p) => p.userId !== userId);
+
+        console.info(
+          `[Challenge Sync] User ${userId} added ${userAddedInfo.activityCount} activities to challenge "${challenge.name}", notifying ${otherParticipants.length} other participant(s)`
+        );
+
+        for (const participant of otherParticipants) {
+          try {
+            await notificationsService.notifyChallengeActivityAdded(
+              participant.userId,
+              challenge.name,
+              `${syncingUser.firstname} ${syncingUser.lastname}`,
+              userAddedInfo.activityCount,
+              userAddedInfo.totalDistance
+            );
+          } catch (error) {
+            console.error(
+              `[Challenge Sync] Failed to notify user ${participant.userId}:`,
+              error
+            );
+          }
+        }
+      }
     }
 
     console.info(

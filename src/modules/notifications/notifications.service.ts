@@ -22,7 +22,11 @@ export class NotificationsService {
     subscription: WebPushSubscription,
     userAgent?: string
   ): Promise<void> {
-    await prisma.pushSubscription.upsert({
+    console.info(
+      `[Notifications] Subscribing user ${userId} with endpoint: ${subscription.endpoint.substring(0, 50)}...`
+    );
+
+    const result = await prisma.pushSubscription.upsert({
       where: {
         userId_endpoint: {
           userId,
@@ -43,6 +47,8 @@ export class NotificationsService {
         userAgent,
       },
     });
+
+    console.info(`[Notifications] Subscription saved with id: ${result.id}`);
   }
 
   async unsubscribe(userId: number, endpoint: string): Promise<void> {
@@ -87,6 +93,11 @@ export class NotificationsService {
   }
 
   async sendToUser(userId: number, payload: PushPayload): Promise<void> {
+    console.info(`[Notifications] Sending notification to user ${userId}:`, {
+      title: payload.title,
+      body: payload.body,
+    });
+
     const subscriptions = await prisma.pushSubscription.findMany({
       where: { userId },
     });
@@ -96,6 +107,8 @@ export class NotificationsService {
       return;
     }
 
+    console.info(`[Notifications] Found ${subscriptions.length} subscription(s) for user ${userId}`);
+
     const notificationPayload = JSON.stringify({
       title: payload.title,
       body: payload.body,
@@ -103,6 +116,8 @@ export class NotificationsService {
       badge: payload.badge || '/pwa-64x64.svg',
       data: payload.data || {},
     });
+
+    console.info(`[Notifications] Payload: ${notificationPayload}`);
 
     const results = await Promise.allSettled(
       subscriptions.map(async (sub) => {
@@ -237,6 +252,42 @@ export class NotificationsService {
       data: {
         type: 'challenge_ending',
         challengeName,
+      },
+    });
+  }
+
+  /**
+   * Notify a user that another participant added activities to a shared challenge
+   */
+  async notifyChallengeActivityAdded(
+    userId: number,
+    challengeName: string,
+    participantName: string,
+    activityCount: number,
+    totalDistance: number
+  ): Promise<void> {
+    const preferences = await this.getPreferences(userId);
+    if (!preferences.challengeProgress) {
+      console.info(
+        `[Notifications] User ${userId} has challengeProgress disabled, skipping activity notification`
+      );
+      return;
+    }
+
+    const distanceKm = (totalDistance / 1000).toFixed(1);
+    const activityText = activityCount === 1 ? 'activity' : 'activities';
+
+    await this.sendToUser(userId, {
+      title: challengeName,
+      body: `${participantName} added ${activityCount} ${activityText} (${distanceKm} km)`,
+      icon: '/pwa-192x192.svg',
+      badge: '/pwa-64x64.svg',
+      data: {
+        type: 'challenge_activity',
+        challengeName,
+        participantName,
+        activityCount,
+        totalDistance,
       },
     });
   }
