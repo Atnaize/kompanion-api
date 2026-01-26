@@ -17,9 +17,11 @@ export class ActivitiesService {
     perPage = 30,
     after?: number
   ): Promise<StravaActivity[]> {
-    const accessToken = await this.authService.ensureValidToken(user);
-
     try {
+      console.info('[Fetch] Ensuring valid token for user:', user.id);
+      const accessToken = await this.authService.ensureValidToken(user);
+      console.info('[Fetch] Token ready, fetching activities page:', page);
+
       const params: Record<string, string | number> = {
         page,
         per_page: perPage,
@@ -39,9 +41,13 @@ export class ActivitiesService {
         }
       );
 
+      console.info('[Fetch] Got', response.data.length, 'activities from Strava');
       return response.data;
     } catch (error) {
-      console.error('Fetch activities error:', error);
+      console.error('[Fetch] Error fetching activities:', error instanceof Error ? error.message : error);
+      if (error instanceof AppError) {
+        throw error;
+      }
       throw new AppError(HttpStatus.BAD_REQUEST, 'Failed to fetch activities from Strava');
     }
   }

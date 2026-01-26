@@ -199,6 +199,10 @@ export class AuthController {
         return;
       }
 
+      // Proactively refresh Strava token if needed
+      // This ensures Strava tokens stay valid even when user is "logged in" via app tokens
+      await this.authService.refreshStravaTokenIfNeeded(user.id);
+
       // Generate new access token
       const accessToken = jwtService.generateAccessToken({
         userId: user.id,
@@ -344,7 +348,9 @@ export class AuthController {
 
       try {
         const tokenResponse = await this.authService.refreshAccessToken(user.refreshToken);
-        await this.authService.saveUser(tokenResponse);
+        // Use updateUserTokens instead of saveUser - it only updates token fields
+        // and doesn't require athlete data (which may not be in refresh response)
+        await this.authService.updateUserTokens(user.id, tokenResponse);
 
         console.info(
           '[Auth Controller] Token refreshed successfully, new expiry:',

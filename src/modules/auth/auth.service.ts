@@ -45,6 +45,8 @@ export class AuthService {
   }
 
   async refreshAccessToken(refreshToken: string): Promise<StravaTokenResponse> {
+    console.info('[Auth] Refreshing Strava access token...');
+
     try {
       const response = await axios.post<StravaTokenResponse>(config.strava.tokenUrl, {
         client_id: config.strava.clientId,
@@ -53,17 +55,31 @@ export class AuthService {
         grant_type: 'refresh_token',
       });
 
+      console.info('[Auth] Strava token refresh successful, new expiry:', response.data.expires_at);
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error)) {
+        console.error('[Auth] Strava token refresh failed:', {
+          status: error.response?.status,
+          data: error.response?.data,
+        });
+
         if (error.response?.status === 400 || error.response?.status === 401) {
           throw new AppError(
             HttpStatus.UNAUTHORIZED,
             'Strava refresh token is invalid or expired. Please log out and re-authenticate with Strava.'
           );
         }
+
+        if (error.response?.status === 429) {
+          throw new AppError(
+            429,
+            'Strava API rate limit exceeded. Please try again later.'
+          );
+        }
       }
 
+      console.error('[Auth] Unexpected error refreshing Strava token:', error);
       throw new AppError(HttpStatus.UNAUTHORIZED, 'Failed to refresh Strava access token');
     }
   }
@@ -108,17 +124,84 @@ export class AuthService {
     return dbUser ? this.toUserModel(dbUser) : null;
   }
 
+  /**
+   * Ensures the user has a valid Strava access token.
+   * Refreshes the token if it's about to expire (within 5 minutes).
+   */
   async ensureValidToken(user: User): Promise<string> {
     const now = Math.floor(Date.now() / 1000);
 
+    // If token is valid for more than 5 minutes, return it
     if (user.tokenExpiresAt > now + 300) {
       return user.accessToken;
     }
 
+    console.info('[Auth] Strava token expired or expiring soon for user:', user.id);
     const tokenResponse = await this.refreshAccessToken(user.refreshToken);
-    await this.saveUser(tokenResponse);
+
+    // Update only the token fields in the database (don't require full athlete data)
+    await this.updateUserTokens(user.id, tokenResponse);
+    console.info('[Auth] Strava token refreshed successfully for user:', user.id);
 
     return tokenResponse.access_token;
+  }
+
+  /**
+   * Updates only the Strava token fields for a user.
+   * This is more reliable than saveUser() for token refresh because
+   * Strava's refresh response may not include complete athlete data.
+   */
+  async updateUserTokens(
+    userId: number,
+    tokenResponse: Pick<StravaTokenResponse, 'access_token' | 'refresh_token' | 'expires_at'>
+  ): Promise<void> {
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        accessToken: tokenResponse.access_token,
+        refreshToken: tokenResponse.refresh_token,
+        tokenExpiresAt: BigInt(tokenResponse.expires_at),
+      },
+    });
+  }
+
+  /**
+   * Checks if the user's Strava token needs refresh and refreshes it if so.
+   * Returns true if the token was refreshed, false if it's still valid.
+   */
+  async refreshStravaTokenIfNeeded(userId: number): Promise<boolean> {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        refreshToken: true,
+        tokenExpiresAt: true,
+      },
+    });
+
+    if (!user) {
+      return false;
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const tokenExpiresAt = Number(user.tokenExpiresAt);
+
+    // If token is valid for more than 5 minutes, no need to refresh
+    if (tokenExpiresAt > now + 300) {
+      return false;
+    }
+
+    try {
+      console.info('[Auth] Proactively refreshing Strava token for user:', userId);
+      const tokenResponse = await this.refreshAccessToken(user.refreshToken);
+      await this.updateUserTokens(userId, tokenResponse);
+      console.info('[Auth] Strava token proactively refreshed for user:', userId);
+      return true;
+    } catch (error) {
+      console.error('[Auth] Failed to proactively refresh Strava token:', error);
+      // Don't throw - this is a proactive refresh, let the actual API call handle failures
+      return false;
+    }
   }
 
   async deleteUser(userId: number): Promise<boolean> {

@@ -63,7 +63,10 @@ export class ActivitiesController {
 
   syncWithProgress = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
+      console.info('[Sync] Starting sync with progress - stravaId:', req.stravaId, 'userId:', req.userId);
+
       if (!req.stravaId) {
+        console.warn('[Sync] Failed: stravaId not found in request');
         res.status(HttpStatus.UNAUTHORIZED).json({
           success: false,
           error: 'Not authenticated',
@@ -74,12 +77,15 @@ export class ActivitiesController {
       const user = await this.authService.getUserByStravaId(req.stravaId);
 
       if (!user) {
+        console.warn('[Sync] Failed: User not found for stravaId:', req.stravaId);
         res.status(HttpStatus.NOT_FOUND).json({
           success: false,
           error: 'User not found',
         });
         return;
       }
+
+      console.info('[Sync] User found:', user.id, '- starting sync');
 
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
@@ -100,6 +106,8 @@ export class ActivitiesController {
       try {
         const result = await this.activitiesService.syncActivitiesWithProgress(user, sendEvent);
 
+        console.info('[Sync] Completed successfully - synced:', result.synced);
+
         sendEvent({
           type: 'complete',
           total: result.synced,
@@ -110,6 +118,7 @@ export class ActivitiesController {
 
         res.end();
       } catch (error) {
+        console.error('[Sync] Error during sync:', error instanceof Error ? error.message : error);
         sendEvent({
           type: 'error',
           message: error instanceof Error ? error.message : 'Sync failed',
@@ -117,6 +126,7 @@ export class ActivitiesController {
         res.end();
       }
     } catch (error) {
+      console.error('[Sync] Unexpected error:', error);
       next(error);
     }
   };

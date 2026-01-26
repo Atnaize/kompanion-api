@@ -17,6 +17,7 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction): vo
   }
 
   if (!token) {
+    console.warn('[Auth] No token found in Authorization header or query parameter');
     res.status(HttpStatus.UNAUTHORIZED).json({
       success: false,
       error: 'Authentication required',
@@ -27,6 +28,7 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction): vo
   const payload = jwtService.verifyToken(token);
 
   if (!payload) {
+    console.warn('[Auth] Token verification failed - token may be invalid or expired');
     res.status(HttpStatus.UNAUTHORIZED).json({
       success: false,
       error: 'Invalid or expired token',
@@ -39,6 +41,7 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction): vo
   req.stravaId = payload.stravaId;
   req.isAdmin = payload.isAdmin;
 
+  console.info('[Auth] User authenticated - userId:', req.userId, 'stravaId:', req.stravaId);
   next();
 };
 

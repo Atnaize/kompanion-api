@@ -153,15 +153,6 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     requirementType: 'streak',
     requirementValue: 30,
   },
-  {
-    id: 'year-legend',
-    name: 'Year Legend',
-    description: 'Maintain a 365-day activity streak',
-    icon: '📆',
-    rarity: 'legendary',
-    requirementType: 'streak',
-    requirementValue: 365,
-  },
 
   // Activity Type Specific
   {
@@ -176,16 +167,6 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
   },
 
   // Secret Achievements - Hidden until unlocked
-  {
-    id: 'secret-lucky-13',
-    name: 'Lucky 13',
-    description: 'Complete exactly 13 activities',
-    icon: '🍀',
-    rarity: 'rare',
-    requirementType: 'activities',
-    requirementValue: 13,
-    isSecret: true,
-  },
   {
     id: 'secret-meaning-of-life',
     name: 'The Answer',
@@ -214,16 +195,6 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     rarity: 'epic',
     requirementType: 'elevation',
     requirementValue: 6666,
-    isSecret: true,
-  },
-  {
-    id: 'secret-marathon-distance',
-    name: 'Marathon Ghost',
-    description: 'Cover exactly 42.195 kilometers in total',
-    icon: '👻',
-    rarity: 'rare',
-    requirementType: 'distance',
-    requirementValue: 42195, // meters
     isSecret: true,
   },
 ];
