@@ -650,10 +650,7 @@ export class ChallengeService {
               userAddedInfo.totalDistance
             );
           } catch (error) {
-            console.error(
-              `[Challenge Sync] Failed to notify user ${participant.userId}:`,
-              error
-            );
+            console.error(`[Challenge Sync] Failed to notify user ${participant.userId}:`, error);
           }
         }
       }

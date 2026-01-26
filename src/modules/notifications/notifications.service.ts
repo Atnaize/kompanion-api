@@ -107,7 +107,9 @@ export class NotificationsService {
       return;
     }
 
-    console.info(`[Notifications] Found ${subscriptions.length} subscription(s) for user ${userId}`);
+    console.info(
+      `[Notifications] Found ${subscriptions.length} subscription(s) for user ${userId}`
+    );
 
     const notificationPayload = JSON.stringify({
       title: payload.title,
