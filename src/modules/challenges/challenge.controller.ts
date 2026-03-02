@@ -229,35 +229,6 @@ export class ChallengeController {
   };
 
   /**
-   * POST /api/challenges/:id/start
-   * Start a challenge (move from draft to active)
-   */
-  startChallenge = async (req: Request, res: Response): Promise<void> => {
-    try {
-      const userId = req.userId;
-
-      if (!userId) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const { id } = req.params;
-
-      const challenge = await this.challengeService.startChallenge(id, userId);
-
-      res.status(200).json({ success: true, data: challenge });
-    } catch (error) {
-      if (error instanceof Error) {
-        res.status(400).json({ success: false, error: error.message });
-        return;
-      }
-
-      console.error('[Challenge Controller] Start error:', error);
-      res.status(500).json({ success: false, error: 'Internal server error' });
-    }
-  };
-
-  /**
    * POST /api/challenges/:id/cancel
    * Cancel a challenge
    */
@@ -288,7 +259,7 @@ export class ChallengeController {
 
   /**
    * DELETE /api/challenges/:id
-   * Delete a draft challenge
+   * Delete an upcoming challenge
    */
   deleteChallenge = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -342,6 +313,60 @@ export class ChallengeController {
       }
 
       console.error('[Challenge Controller] Sync error:', error);
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  };
+
+  /**
+   * GET /api/challenges/unseen-completed
+   * Get completed challenges the user hasn't seen the summary for
+   */
+  getUnseenCompleted = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const userId = req.userId;
+
+      if (!userId) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      // Ensure expired challenges are completed first
+      await this.challengeService.completeExpiredChallenges();
+
+      const challenges = await this.challengeService.getUnseenCompletedChallenges(userId);
+
+      res.status(200).json({ success: true, data: challenges });
+    } catch (error) {
+      console.error('[Challenge Controller] Get unseen completed error:', error);
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  };
+
+  /**
+   * POST /api/challenges/:id/summary-seen
+   * Mark challenge completion summary as seen
+   */
+  markSummarySeen = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const userId = req.userId;
+
+      if (!userId) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const { id } = req.params;
+
+      await this.challengeService.markChallengeSummarySeen(id, userId);
+
+      res.status(200).json({ success: true });
+    } catch (error) {
+      if (error instanceof Error) {
+        res.status(400).json({ success: false, error: error.message });
+        return;
+      }
+
+      console.error('[Challenge Controller] Mark summary seen error:', error);
       res.status(500).json({ success: false, error: 'Internal server error' });
     }
   };

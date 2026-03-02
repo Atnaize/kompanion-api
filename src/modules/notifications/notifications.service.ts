@@ -293,4 +293,27 @@ export class NotificationsService {
       },
     });
   }
+
+  async notifyChallengeCompleted(
+    userId: number,
+    challengeName: string,
+    isSuccess: boolean
+  ): Promise<void> {
+    const preferences = await this.getPreferences(userId);
+    if (!preferences.challengeProgress) {
+      return;
+    }
+
+    await this.sendToUser(userId, {
+      title: isSuccess ? 'Challenge Completed!' : 'Challenge Ended',
+      body: `"${challengeName}" has ended. Check your results!`,
+      icon: '/pwa-192x192.svg',
+      badge: '/pwa-64x64.svg',
+      data: {
+        type: 'challenge_completed',
+        challengeName,
+        isSuccess,
+      },
+    });
+  }
 }

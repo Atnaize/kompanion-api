@@ -285,6 +285,7 @@ model ChallengeParticipant {
   totalElevation  Float    @default(0)
   activityCount   Int      @default(0)
   lastActivityAt  DateTime?
+  summarySeenAt  DateTime?
 
   // Relations
   challenge       Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)

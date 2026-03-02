@@ -1,12 +1,13 @@
 // Challenge types and interfaces
 
 export type ChallengeType = 'collaborative' | 'competitive';
-export type ChallengeStatus = 'draft' | 'active' | 'completed' | 'failed' | 'cancelled';
+export type ChallengeStatus = 'active' | 'completed' | 'failed' | 'cancelled';
 export type ParticipantStatus = 'invited' | 'accepted' | 'declined' | 'left';
 export type CompetitiveGoal = 'most' | 'least' | 'exact';
 export type ChallengeEventType =
   | 'created'
   | 'started'
+  | 'invited'
   | 'activity_added'
   | 'milestone_reached'
   | 'lead_change'
@@ -59,6 +60,7 @@ export interface ChallengeParticipant {
   totalElevation: number;
   activityCount: number;
   lastActivityAt: Date | null;
+  summarySeenAt: Date | null;
 
   // Relations
   user?: {

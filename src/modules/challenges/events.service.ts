@@ -44,11 +44,11 @@ export class EventsService {
     userId: number,
     since?: Date
   ): Promise<{ events: ChallengeEvent[]; etag: string }> {
-    // Get all challenges the user is participating in
+    // Get all challenges the user is participating in (including invited)
     const participantRecords = await prisma.challengeParticipant.findMany({
       where: {
         userId,
-        status: 'accepted',
+        status: { in: ['accepted', 'invited'] },
       },
       select: {
         challengeId: true,

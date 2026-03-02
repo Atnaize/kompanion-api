@@ -65,7 +65,7 @@ export class ChallengeService {
     const challenge = await prisma.challenge.create({
       data: {
         ...challengeData,
-        status: 'draft',
+        status: 'active',
         targets: challengeData.targets as Prisma.InputJsonValue,
         participants: {
           create: [
@@ -120,6 +120,16 @@ export class ChallengeService {
       },
     });
 
+    // If challenge has already started, retroactively count activities for the creator
+    if (challengeData.startDate <= new Date()) {
+      await this.countRetroactiveActivities(
+        challenge.id,
+        challengeData.startDate,
+        challengeData.endDate,
+        [challengeData.creatorId]
+      );
+    }
+
     return challenge as unknown as Challenge;
   }
 
@@ -127,6 +137,9 @@ export class ChallengeService {
    * Get a challenge by ID
    */
   async getChallengeById(challengeId: string, userId?: number): Promise<Challenge | null> {
+    // Lazily complete expired challenges
+    await this.completeExpiredChallenges();
+
     const challenge = await prisma.challenge.findUnique({
       where: { id: challengeId },
       include: {
@@ -181,6 +194,9 @@ export class ChallengeService {
       type?: ChallengeType;
     }
   ): Promise<Challenge[]> {
+    // Lazily complete expired challenges
+    await this.completeExpiredChallenges();
+
     const challenges = await prisma.challenge.findMany({
       where: {
         participants: {
@@ -248,7 +264,7 @@ export class ChallengeService {
       throw new Error('Only the creator can update this challenge');
     }
 
-    if (challenge.status !== 'draft' && challenge.status !== 'active') {
+    if (challenge.status !== 'active') {
       throw new Error('Cannot update completed or cancelled challenges');
     }
 
@@ -291,90 +307,6 @@ export class ChallengeService {
               },
             },
           },
-        },
-      },
-    });
-
-    return updated as unknown as Challenge;
-  }
-
-  /**
-   * Start a challenge (move from draft to active)
-   */
-  async startChallenge(challengeId: string, userId: number): Promise<Challenge> {
-    const challenge = await prisma.challenge.findUnique({
-      where: { id: challengeId },
-      include: {
-        participants: {
-          where: { status: 'accepted' },
-        },
-      },
-    });
-
-    if (!challenge) {
-      throw new Error('Challenge not found');
-    }
-
-    if (challenge.creatorId !== userId) {
-      throw new Error('Only the creator can start this challenge');
-    }
-
-    if (challenge.status !== 'draft') {
-      throw new Error('Challenge must be in draft status to start');
-    }
-
-    // Check if at least one other participant has accepted
-    const acceptedCount = challenge.participants.length;
-
-    if (acceptedCount < 2) {
-      throw new Error('Challenge needs at least 2 participants to start');
-    }
-
-    // Update challenge status to active
-    const updated = await prisma.challenge.update({
-      where: { id: challengeId },
-      data: { status: 'active' },
-      include: {
-        creator: {
-          select: {
-            id: true,
-            firstname: true,
-            lastname: true,
-            profile: true,
-          },
-        },
-        participants: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                firstname: true,
-                lastname: true,
-                profile: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    // Retroactively count activities that occurred during the challenge period
-    // No notifications for initial retroactive sync when starting a challenge
-    await this.countRetroactiveActivities(
-      challengeId,
-      challenge.startDate,
-      challenge.endDate,
-      challenge.participants.map((p) => p.userId)
-    );
-
-    // Create event
-    await prisma.challengeEvent.create({
-      data: {
-        challengeId,
-        userId,
-        type: 'started',
-        data: {
-          participantCount: acceptedCount,
         },
       },
     });
@@ -564,8 +496,8 @@ export class ChallengeService {
       throw new Error('Only the creator can delete this challenge');
     }
 
-    if (challenge.status !== 'draft') {
-      throw new Error('Can only delete draft challenges. Use cancel for active challenges');
+    if (challenge.status !== 'active' || challenge.startDate <= new Date()) {
+      throw new Error('Can only delete upcoming challenges. Use cancel for active challenges');
     }
 
     await prisma.challenge.delete({
@@ -582,6 +514,9 @@ export class ChallengeService {
     synced: number;
     activitiesAdded: number;
   }> {
+    // Lazily complete expired challenges before syncing
+    await this.completeExpiredChallenges();
+
     const notificationsService = new NotificationsService();
 
     // Get the syncing user's info for notifications
@@ -747,5 +682,156 @@ export class ChallengeService {
       targetProgress,
       isComplete,
     };
+  }
+
+  /**
+   * Lazily complete expired challenges (endDate < now and still active)
+   * Called before fetching challenges to ensure status is up to date
+   */
+  async completeExpiredChallenges(): Promise<void> {
+    const now = new Date();
+
+    const expiredChallenges = await prisma.challenge.findMany({
+      where: {
+        status: 'active',
+        endDate: { lt: now },
+      },
+      include: {
+        participants: {
+          where: { status: 'accepted' },
+        },
+      },
+    });
+
+    if (expiredChallenges.length === 0) {
+      return;
+    }
+
+    const notificationsService = new NotificationsService();
+
+    for (const challenge of expiredChallenges) {
+      const targets = challenge.targets as ChallengeTargets;
+
+      // Determine if challenge succeeded
+      let isSuccess = true;
+
+      if (challenge.type === 'collaborative') {
+        const totalDistance = challenge.participants.reduce((sum, p) => sum + p.totalDistance, 0);
+        const totalElevation = challenge.participants.reduce((sum, p) => sum + p.totalElevation, 0);
+
+        const distanceComplete = !targets.distance || totalDistance >= targets.distance;
+        const elevationComplete = !targets.elevation || totalElevation >= targets.elevation;
+        isSuccess = distanceComplete && elevationComplete;
+      }
+      // Competitive challenges always complete as 'completed' (there's a winner)
+
+      const newStatus = isSuccess ? 'completed' : 'failed';
+
+      await prisma.challenge.update({
+        where: { id: challenge.id },
+        data: { status: newStatus },
+      });
+
+      // Create event
+      await prisma.challengeEvent.create({
+        data: {
+          challengeId: challenge.id,
+          type: newStatus,
+          data: {
+            challengeName: challenge.name,
+            isSuccess,
+          },
+        },
+      });
+
+      // Notify all participants
+      for (const participant of challenge.participants) {
+        try {
+          await notificationsService.notifyChallengeCompleted(
+            participant.userId,
+            challenge.name,
+            isSuccess
+          );
+        } catch (error) {
+          console.error(
+            `[Challenge] Failed to notify user ${participant.userId} about challenge completion:`,
+            error
+          );
+        }
+      }
+
+      console.info(
+        `[Challenge] Auto-completed challenge "${challenge.name}" (${challenge.id}) as ${newStatus}`
+      );
+    }
+  }
+
+  /**
+   * Get completed challenges the user hasn't seen the summary for yet
+   */
+  async getUnseenCompletedChallenges(userId: number): Promise<Challenge[]> {
+    const participants = await prisma.challengeParticipant.findMany({
+      where: {
+        userId,
+        status: 'accepted',
+        summarySeenAt: null,
+        challenge: {
+          status: { in: ['completed', 'failed'] },
+        },
+      },
+      include: {
+        challenge: {
+          include: {
+            creator: {
+              select: {
+                id: true,
+                firstname: true,
+                lastname: true,
+                profile: true,
+              },
+            },
+            participants: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    firstname: true,
+                    lastname: true,
+                    profile: true,
+                  },
+                },
+              },
+              orderBy: {
+                totalDistance: 'desc',
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        challenge: {
+          endDate: 'desc',
+        },
+      },
+    });
+
+    return participants.map((p) => p.challenge) as unknown as Challenge[];
+  }
+
+  /**
+   * Mark a challenge summary as seen by a user
+   */
+  async markChallengeSummarySeen(challengeId: string, userId: number): Promise<void> {
+    await prisma.challengeParticipant.update({
+      where: {
+        challengeId_userId: {
+          challengeId,
+          userId,
+        },
+      },
+      data: {
+        summarySeenAt: new Date(),
+      },
+    });
   }
 }

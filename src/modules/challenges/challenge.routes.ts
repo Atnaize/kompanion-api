@@ -18,6 +18,9 @@ router.get('/events', requireAuth, eventsController.getUserChallengeEvents);
 // Sync (must come before /:id routes)
 router.post('/sync', requireAuth, challengeController.syncActiveChallenges);
 
+// Unseen completed challenges (must come before /:id routes)
+router.get('/unseen-completed', requireAuth, challengeController.getUnseenCompleted);
+
 // Challenge CRUD
 router.post('/', requireAuth, challengeController.createChallenge);
 router.get('/', requireAuth, challengeController.getChallenges);
@@ -26,8 +29,8 @@ router.patch('/:id', requireAuth, challengeController.updateChallenge);
 router.delete('/:id', requireAuth, challengeController.deleteChallenge);
 
 // Challenge actions
-router.post('/:id/start', requireAuth, challengeController.startChallenge);
 router.post('/:id/cancel', requireAuth, challengeController.cancelChallenge);
+router.post('/:id/summary-seen', requireAuth, challengeController.markSummarySeen);
 
 // Challenge progress
 router.get('/:id/progress', requireAuth, challengeController.getChallengeProgress);

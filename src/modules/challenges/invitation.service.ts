@@ -22,7 +22,7 @@ export class InvitationService {
       throw new Error('Only the creator can invite users');
     }
 
-    if (challenge.status !== 'draft' && challenge.status !== 'active') {
+    if (challenge.status !== 'active') {
       throw new Error('Cannot invite users to completed or cancelled challenges');
     }
 
@@ -58,10 +58,10 @@ export class InvitationService {
           data: {
             challengeId,
             userId: creatorId,
-            type: 'created', // Reuse created type for invitations
+            type: 'invited',
             data: {
-              action: 'user_invited',
               invitedUserId: userId,
+              challengeName: challenge.name,
             },
           },
         })
@@ -117,7 +117,7 @@ export class InvitationService {
       throw new Error('Challenge not found');
     }
 
-    if (challenge.status === 'completed' || challenge.status === 'cancelled') {
+    if (challenge.status !== 'active') {
       throw new Error('Cannot accept invitation for completed or cancelled challenges');
     }
 
@@ -273,9 +273,7 @@ export class InvitationService {
         userId,
         status: 'invited',
         challenge: {
-          status: {
-            in: ['draft', 'active'],
-          },
+          status: 'active',
         },
       },
       include: {
