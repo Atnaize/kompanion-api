@@ -9,7 +9,6 @@ import { achievementsRoutes } from './modules/achievements/index.js';
 import { challengeRoutes } from './modules/challenges/index.js';
 import { friendsRoutes } from './modules/friends/index.js';
 import { notificationsRoutes } from './modules/notifications/index.js';
-import trainingRoutes from './modules/training/training.routes.js';
 
 const app = express();
 
@@ -60,7 +59,6 @@ app.use('/api/achievements', achievementsRoutes);
 app.use('/api/challenges', challengeRoutes);
 app.use('/api/friends', friendsRoutes);
 app.use('/api/notifications', notificationsRoutes);
-app.use('/api/training', trainingRoutes);
 
 app.use(errorHandler);
 
