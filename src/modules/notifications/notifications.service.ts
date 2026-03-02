@@ -294,6 +294,28 @@ export class NotificationsService {
     });
   }
 
+  async notifyChallengeCancelled(
+    userId: number,
+    challengeName: string,
+    cancelledByName: string
+  ): Promise<void> {
+    const preferences = await this.getPreferences(userId);
+    if (!preferences.challengeProgress) {
+      return;
+    }
+
+    await this.sendToUser(userId, {
+      title: 'Challenge Cancelled',
+      body: `"${challengeName}" was cancelled by ${cancelledByName}`,
+      icon: '/pwa-192x192.svg',
+      badge: '/pwa-64x64.svg',
+      data: {
+        type: 'challenge_cancelled',
+        challengeName,
+      },
+    });
+  }
+
   async notifyChallengeCompleted(
     userId: number,
     challengeName: string,

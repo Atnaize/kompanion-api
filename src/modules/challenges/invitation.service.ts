@@ -1,9 +1,11 @@
 import { prisma } from '@shared/utils/index.js';
-import type { ChallengeParticipant } from '@shared/types/index.js';
+import type { ChallengeParticipant, ChallengeTargets } from '@shared/types/index.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
+import { ChallengeService } from './challenge.service.js';
 
 export class InvitationService {
   private notificationsService = new NotificationsService();
+  private challengeService = new ChallengeService();
 
   /**
    * Invite users to a challenge
@@ -156,6 +158,18 @@ export class InvitationService {
         },
       },
     });
+
+    // Backfill activities if challenge has already started
+    if (challenge.startDate <= new Date()) {
+      const targets = challenge.targets as ChallengeTargets;
+      await this.challengeService.countRetroactiveActivities(
+        challengeId,
+        challenge.startDate,
+        challenge.endDate,
+        [userId],
+        targets.activityType
+      );
+    }
 
     return updated as unknown as ChallengeParticipant;
   }

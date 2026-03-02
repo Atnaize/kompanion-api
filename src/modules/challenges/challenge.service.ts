@@ -40,6 +40,10 @@ interface UpdateChallengeData {
   targets?: ChallengeTargets;
 }
 
+// Module-level debounce for completeExpiredChallenges
+let lastCompletionCheck = 0;
+const COMPLETION_CHECK_INTERVAL_MS = 60_000; // 60 seconds
+
 export class ChallengeService {
   /**
    * Create a new challenge
@@ -121,12 +125,14 @@ export class ChallengeService {
     });
 
     // If challenge has already started, retroactively count activities for the creator
+    const targets = challengeData.targets as ChallengeTargets;
     if (challengeData.startDate <= new Date()) {
       await this.countRetroactiveActivities(
         challenge.id,
         challengeData.startDate,
         challengeData.endDate,
-        [challengeData.creatorId]
+        [challengeData.creatorId],
+        targets.activityType
       );
     }
 
@@ -319,11 +325,12 @@ export class ChallengeService {
    * This is called when a challenge is started to include past activities
    * Returns information about which activities were added, grouped by user
    */
-  private async countRetroactiveActivities(
+  async countRetroactiveActivities(
     challengeId: string,
     startDate: Date,
     endDate: Date,
-    participantUserIds: number[]
+    participantUserIds: number[],
+    activityType?: string
   ): Promise<CountRetroactiveResult> {
     const result: CountRetroactiveResult = {
       totalAdded: 0,
@@ -338,6 +345,7 @@ export class ChallengeService {
           gte: startDate,
           lte: endDate,
         },
+        ...(activityType && { type: activityType }),
       },
       orderBy: {
         startDate: 'asc',
@@ -473,9 +481,38 @@ export class ChallengeService {
         challengeId,
         userId,
         type: 'cancelled',
-        data: {},
+        data: {
+          challengeName: challenge.name,
+        },
       },
     });
+
+    // Notify all accepted participants (except the creator who cancelled)
+    const notificationsService = new NotificationsService();
+    const creator = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { firstname: true, lastname: true },
+    });
+    const creatorName = creator ? `${creator.firstname} ${creator.lastname}` : 'The creator';
+
+    const acceptedParticipants = updated.participants.filter(
+      (p) => p.userId !== userId && (p.status === 'accepted' || p.status === 'invited')
+    );
+
+    for (const participant of acceptedParticipants) {
+      try {
+        await notificationsService.notifyChallengeCancelled(
+          participant.userId,
+          challenge.name,
+          creatorName
+        );
+      } catch (error) {
+        console.error(
+          `[Challenge] Failed to notify user ${participant.userId} about cancellation:`,
+          error
+        );
+      }
+    }
 
     return updated as unknown as Challenge;
   }
@@ -555,14 +592,60 @@ export class ChallengeService {
     let totalActivitiesAdded = 0;
 
     for (const challenge of challenges) {
+      const challengeTargets = challenge.targets as ChallengeTargets;
       const result = await this.countRetroactiveActivities(
         challenge.id,
         challenge.startDate,
         challenge.endDate,
-        challenge.participants.map((p) => p.userId)
+        challenge.participants.map((p) => p.userId),
+        challengeTargets.activityType
       );
 
       totalActivitiesAdded += result.totalAdded;
+
+      // For collaborative challenges, check if target was just reached
+      if (result.totalAdded > 0 && challenge.type === 'collaborative') {
+        const progress = await this.getChallengeProgress(challenge.id);
+        if (progress.isComplete) {
+          // Check if there's already a milestone_reached event for this challenge
+          const existingMilestone = await prisma.challengeEvent.findFirst({
+            where: {
+              challengeId: challenge.id,
+              type: 'milestone_reached',
+              data: { path: ['milestone'], equals: 'target_reached' },
+            },
+          });
+
+          if (!existingMilestone) {
+            await prisma.challengeEvent.create({
+              data: {
+                challengeId: challenge.id,
+                userId,
+                type: 'milestone_reached',
+                data: {
+                  milestone: 'target_reached',
+                  challengeName: challenge.name,
+                },
+              },
+            });
+
+            for (const participant of challenge.participants) {
+              try {
+                await notificationsService.notifyChallengeProgress(
+                  participant.userId,
+                  challenge.name,
+                  'Target reached! Keep going until the end!'
+                );
+              } catch (error) {
+                console.error(
+                  `[Challenge Sync] Failed to notify user ${participant.userId} about milestone:`,
+                  error
+                );
+              }
+            }
+          }
+        }
+      }
 
       // Check if the syncing user added any activities
       const userAddedInfo = result.addedByUser.get(userId);
@@ -689,6 +772,12 @@ export class ChallengeService {
    * Called before fetching challenges to ensure status is up to date
    */
   async completeExpiredChallenges(): Promise<void> {
+    const nowMs = Date.now();
+    if (nowMs - lastCompletionCheck < COMPLETION_CHECK_INTERVAL_MS) {
+      return;
+    }
+    lastCompletionCheck = nowMs;
+
     const now = new Date();
 
     const expiredChallenges = await prisma.challenge.findMany({

@@ -6,8 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "prisma generate && tsc && tsc-alias && npm run copy:data",
-    "copy:data": "mkdir -p dist/data && cp -r data/* dist/data/",
+    "build": "prisma generate && tsc && tsc-alias",
     "postbuild": "prisma migrate deploy && npm run db:seed",
     "start": "node dist/server.js",
     "lint": "eslint",
