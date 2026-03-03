@@ -337,6 +337,24 @@ export class ChallengeService {
       addedByUser: new Map(),
     };
 
+    // Remove any previously-added activities that no longer match the activity type filter.
+    // This handles challenges where activities were added before a filter was set,
+    // or where the filter was changed after activities were already counted.
+    if (activityType) {
+      const removed = await prisma.challengeActivity.deleteMany({
+        where: {
+          challengeId,
+          activityType: { not: activityType },
+        },
+      });
+
+      if (removed.count > 0) {
+        console.info(
+          `[Challenge ${challengeId}] Removed ${removed.count} activities not matching type "${activityType}"`
+        );
+      }
+    }
+
     // Find all activities for accepted participants within the challenge date range
     const activities = await prisma.activity.findMany({
       where: {
@@ -387,22 +405,6 @@ export class ChallengeService {
           },
         });
 
-        // Update participant progress
-        await prisma.challengeParticipant.update({
-          where: {
-            challengeId_userId: {
-              challengeId,
-              userId: activity.userId,
-            },
-          },
-          data: {
-            totalDistance: { increment: activity.distance },
-            totalElevation: { increment: activity.totalElevationGain },
-            activityCount: { increment: 1 },
-            lastActivityAt: activity.startDate,
-          },
-        });
-
         // Track added activities by user
         result.totalAdded++;
         const userInfo = result.addedByUser.get(activity.userId) || {
@@ -423,6 +425,40 @@ export class ChallengeService {
           error
         );
       }
+    }
+
+    // Recalculate participant totals from actual ChallengeActivity records.
+    // This ensures totals are always accurate regardless of historical data issues.
+    for (const userId of participantUserIds) {
+      const aggregation = await prisma.challengeActivity.aggregate({
+        where: {
+          challengeId,
+          userId,
+        },
+        _sum: {
+          distance: true,
+          elevation: true,
+        },
+        _count: true,
+        _max: {
+          recordedAt: true,
+        },
+      });
+
+      await prisma.challengeParticipant.update({
+        where: {
+          challengeId_userId: {
+            challengeId,
+            userId,
+          },
+        },
+        data: {
+          totalDistance: aggregation._sum.distance || 0,
+          totalElevation: aggregation._sum.elevation || 0,
+          activityCount: aggregation._count,
+          lastActivityAt: aggregation._max.recordedAt,
+        },
+      });
     }
 
     return result;
