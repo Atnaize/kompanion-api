@@ -3,7 +3,17 @@ import { config } from '@config/env.js';
 import { prisma } from '@shared/utils/index.js';
 import { AuthService } from '../auth/auth.service.js';
 import { ChallengeService } from '../challenges/challenge.service.js';
-import type { StravaActivity, StravaDetailedActivity, User } from '@shared/types/index.js';
+import type {
+  StravaActivity,
+  StravaComment,
+  StravaDetailedActivity,
+  StravaLap,
+  StravaPhoto,
+  StravaStreamSet,
+  StravaStreamType,
+  StravaSummaryAthlete,
+  User,
+} from '@shared/types/index.js';
 import { AppError } from '@shared/middleware/index.js';
 import { HttpStatus } from '@shared/types/index.js';
 
@@ -319,6 +329,167 @@ export class ActivitiesService {
       console.error('Fetch detailed activity error:', error);
       // Fall back to basic activity data if detailed fetch fails
       return this.mapDbActivityToStrava(dbActivity);
+    }
+  }
+
+  async getActivityStreams(
+    activityId: number,
+    user: User,
+    keys: StravaStreamType[] = [
+      'time',
+      'distance',
+      'latlng',
+      'altitude',
+      'velocity_smooth',
+      'heartrate',
+      'cadence',
+      'watts',
+      'temp',
+      'grade_smooth',
+    ]
+  ): Promise<StravaStreamSet | null> {
+    const dbActivity = await prisma.activity.findFirst({
+      where: { id: BigInt(activityId), userId: user.id },
+      select: { id: true },
+    });
+
+    if (!dbActivity) {
+      return null;
+    }
+
+    const accessToken = await this.authService.ensureValidToken(user);
+
+    try {
+      const response = await axios.get<StravaStreamSet>(
+        `${config.strava.apiUrl}/activities/${activityId}/streams`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          params: { keys: keys.join(','), key_by_type: true },
+        }
+      );
+      return response.data;
+    } catch (error) {
+      console.error(
+        '[Streams] Error fetching streams:',
+        error instanceof Error ? error.message : error
+      );
+      return {};
+    }
+  }
+
+  async getActivityLaps(activityId: number, user: User): Promise<StravaLap[] | null> {
+    const dbActivity = await prisma.activity.findFirst({
+      where: { id: BigInt(activityId), userId: user.id },
+      select: { id: true },
+    });
+
+    if (!dbActivity) {
+      return null;
+    }
+
+    const accessToken = await this.authService.ensureValidToken(user);
+
+    try {
+      const response = await axios.get<StravaLap[]>(
+        `${config.strava.apiUrl}/activities/${activityId}/laps`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('[Laps] Error fetching laps:', error instanceof Error ? error.message : error);
+      return [];
+    }
+  }
+
+  async getActivityKudoers(activityId: number, user: User): Promise<StravaSummaryAthlete[] | null> {
+    const dbActivity = await prisma.activity.findFirst({
+      where: { id: BigInt(activityId), userId: user.id },
+      select: { id: true },
+    });
+
+    if (!dbActivity) {
+      return null;
+    }
+
+    const accessToken = await this.authService.ensureValidToken(user);
+
+    try {
+      const response = await axios.get<StravaSummaryAthlete[]>(
+        `${config.strava.apiUrl}/activities/${activityId}/kudos`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          params: { per_page: 100 },
+        }
+      );
+      return response.data;
+    } catch (error) {
+      console.error(
+        '[Kudos] Error fetching kudoers:',
+        error instanceof Error ? error.message : error
+      );
+      return [];
+    }
+  }
+
+  async getActivityComments(activityId: number, user: User): Promise<StravaComment[] | null> {
+    const dbActivity = await prisma.activity.findFirst({
+      where: { id: BigInt(activityId), userId: user.id },
+      select: { id: true },
+    });
+
+    if (!dbActivity) {
+      return null;
+    }
+
+    const accessToken = await this.authService.ensureValidToken(user);
+
+    try {
+      const response = await axios.get<StravaComment[]>(
+        `${config.strava.apiUrl}/activities/${activityId}/comments`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          params: { per_page: 100 },
+        }
+      );
+      return response.data;
+    } catch (error) {
+      console.error(
+        '[Comments] Error fetching comments:',
+        error instanceof Error ? error.message : error
+      );
+      return [];
+    }
+  }
+
+  async getActivityPhotos(activityId: number, user: User): Promise<StravaPhoto[] | null> {
+    const dbActivity = await prisma.activity.findFirst({
+      where: { id: BigInt(activityId), userId: user.id },
+      select: { id: true },
+    });
+
+    if (!dbActivity) {
+      return null;
+    }
+
+    const accessToken = await this.authService.ensureValidToken(user);
+
+    try {
+      const response = await axios.get<StravaPhoto[]>(
+        `${config.strava.apiUrl}/activities/${activityId}/photos`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          params: { size: 2048, photo_sources: true },
+        }
+      );
+      return response.data;
+    } catch (error) {
+      console.error(
+        '[Photos] Error fetching photos:',
+        error instanceof Error ? error.message : error
+      );
+      return [];
     }
   }
 

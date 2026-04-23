@@ -125,7 +125,7 @@ export class ChallengeService {
     });
 
     // If challenge has already started, retroactively count activities for the creator
-    const targets = challengeData.targets as ChallengeTargets;
+    const targets = challengeData.targets;
     if (challengeData.startDate <= new Date()) {
       await this.countRetroactiveActivities(
         challenge.id,

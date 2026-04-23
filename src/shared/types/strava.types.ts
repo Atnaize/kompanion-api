@@ -183,4 +183,115 @@ export interface StravaSegmentEffort {
 
 export interface StravaDetailedActivity extends StravaActivity {
   segment_efforts?: StravaSegmentEffort[];
+  calories?: number;
+  description?: string;
+  device_name?: string;
+  embed_token?: string;
+  suffer_score?: number;
+  average_cadence?: number;
+  average_temp?: number;
+  weighted_average_watts?: number;
+  max_watts?: number;
+  laps?: StravaLap[];
+  photos?: {
+    primary?: {
+      urls?: Record<string, string>;
+    } | null;
+    count?: number;
+  };
 }
+
+export interface StravaLap {
+  id: number;
+  activity: { id: number };
+  athlete: { id: number };
+  average_cadence?: number;
+  average_speed: number;
+  distance: number;
+  elapsed_time: number;
+  start_index: number;
+  end_index: number;
+  lap_index: number;
+  max_speed: number;
+  moving_time: number;
+  name: string;
+  pace_zone?: number;
+  split: number;
+  start_date: string;
+  start_date_local: string;
+  total_elevation_gain: number;
+  average_heartrate?: number;
+  max_heartrate?: number;
+  average_watts?: number;
+}
+
+export type StravaStreamType =
+  | 'time'
+  | 'distance'
+  | 'latlng'
+  | 'altitude'
+  | 'velocity_smooth'
+  | 'heartrate'
+  | 'cadence'
+  | 'watts'
+  | 'temp'
+  | 'moving'
+  | 'grade_smooth';
+
+export interface StravaStream<T = number> {
+  type: StravaStreamType;
+  data: T[];
+  series_type: 'distance' | 'time';
+  original_size: number;
+  resolution: 'low' | 'medium' | 'high';
+}
+
+export interface StravaSummaryAthlete {
+  id: number;
+  firstname: string;
+  lastname: string;
+  profile?: string;
+  profile_medium?: string;
+  resource_state?: number;
+}
+
+export interface StravaComment {
+  id: number;
+  activity_id: number;
+  text: string;
+  created_at: string;
+  athlete: StravaSummaryAthlete;
+}
+
+export interface StravaPhoto {
+  id: number | null;
+  unique_id: string;
+  urls: Record<string, string>;
+  source: number;
+  activity_id: number;
+  activity_name?: string;
+  post_id?: number | null;
+  resource_state: number;
+  caption?: string | null;
+  type?: string;
+  uploaded_at?: string;
+  created_at?: string;
+  created_at_local?: string;
+  sizes?: Record<string, [number, number]>;
+  default_photo?: boolean;
+  location?: [number, number] | null;
+}
+
+export type StravaStreamSet = Partial<{
+  time: StravaStream<number>;
+  distance: StravaStream<number>;
+  latlng: StravaStream<[number, number]>;
+  altitude: StravaStream<number>;
+  velocity_smooth: StravaStream<number>;
+  heartrate: StravaStream<number>;
+  cadence: StravaStream<number>;
+  watts: StravaStream<number>;
+  temp: StravaStream<number>;
+  moving: StravaStream<boolean>;
+  grade_smooth: StravaStream<number>;
+}>;

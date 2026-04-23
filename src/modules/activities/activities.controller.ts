@@ -190,6 +190,175 @@ export class ActivitiesController {
     }
   };
 
+  getStreams = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.params;
+
+      if (!req.stravaId) {
+        res.status(HttpStatus.UNAUTHORIZED).json({ success: false, error: 'Not authenticated' });
+        return;
+      }
+
+      const validation = validateNumericId(id);
+      if (!validation.isValid) {
+        res
+          .status(HttpStatus.BAD_REQUEST)
+          .json({ success: false, error: validation.error || 'Invalid activity ID' });
+        return;
+      }
+
+      const activityId = parseInt(id, 10);
+      const user = await this.authService.getUserByStravaId(req.stravaId);
+
+      if (!user) {
+        res.status(HttpStatus.NOT_FOUND).json({ success: false, error: 'User not found' });
+        return;
+      }
+
+      const streams = await this.activitiesService.getActivityStreams(activityId, user);
+
+      if (streams === null) {
+        res.status(HttpStatus.NOT_FOUND).json({ success: false, error: 'Activity not found' });
+        return;
+      }
+
+      res.json({ success: true, data: streams });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  getKudoers = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.params;
+      if (!req.stravaId) {
+        res.status(HttpStatus.UNAUTHORIZED).json({ success: false, error: 'Not authenticated' });
+        return;
+      }
+      const validation = validateNumericId(id);
+      if (!validation.isValid) {
+        res
+          .status(HttpStatus.BAD_REQUEST)
+          .json({ success: false, error: validation.error || 'Invalid activity ID' });
+        return;
+      }
+      const activityId = parseInt(id, 10);
+      const user = await this.authService.getUserByStravaId(req.stravaId);
+      if (!user) {
+        res.status(HttpStatus.NOT_FOUND).json({ success: false, error: 'User not found' });
+        return;
+      }
+      const kudoers = await this.activitiesService.getActivityKudoers(activityId, user);
+      if (kudoers === null) {
+        res.status(HttpStatus.NOT_FOUND).json({ success: false, error: 'Activity not found' });
+        return;
+      }
+      res.json({ success: true, data: kudoers });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  getComments = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.params;
+      if (!req.stravaId) {
+        res.status(HttpStatus.UNAUTHORIZED).json({ success: false, error: 'Not authenticated' });
+        return;
+      }
+      const validation = validateNumericId(id);
+      if (!validation.isValid) {
+        res
+          .status(HttpStatus.BAD_REQUEST)
+          .json({ success: false, error: validation.error || 'Invalid activity ID' });
+        return;
+      }
+      const activityId = parseInt(id, 10);
+      const user = await this.authService.getUserByStravaId(req.stravaId);
+      if (!user) {
+        res.status(HttpStatus.NOT_FOUND).json({ success: false, error: 'User not found' });
+        return;
+      }
+      const comments = await this.activitiesService.getActivityComments(activityId, user);
+      if (comments === null) {
+        res.status(HttpStatus.NOT_FOUND).json({ success: false, error: 'Activity not found' });
+        return;
+      }
+      res.json({ success: true, data: comments });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  getPhotos = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.params;
+      if (!req.stravaId) {
+        res.status(HttpStatus.UNAUTHORIZED).json({ success: false, error: 'Not authenticated' });
+        return;
+      }
+      const validation = validateNumericId(id);
+      if (!validation.isValid) {
+        res
+          .status(HttpStatus.BAD_REQUEST)
+          .json({ success: false, error: validation.error || 'Invalid activity ID' });
+        return;
+      }
+      const activityId = parseInt(id, 10);
+      const user = await this.authService.getUserByStravaId(req.stravaId);
+      if (!user) {
+        res.status(HttpStatus.NOT_FOUND).json({ success: false, error: 'User not found' });
+        return;
+      }
+      const photos = await this.activitiesService.getActivityPhotos(activityId, user);
+      if (photos === null) {
+        res.status(HttpStatus.NOT_FOUND).json({ success: false, error: 'Activity not found' });
+        return;
+      }
+      res.json({ success: true, data: photos });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  getLaps = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.params;
+
+      if (!req.stravaId) {
+        res.status(HttpStatus.UNAUTHORIZED).json({ success: false, error: 'Not authenticated' });
+        return;
+      }
+
+      const validation = validateNumericId(id);
+      if (!validation.isValid) {
+        res
+          .status(HttpStatus.BAD_REQUEST)
+          .json({ success: false, error: validation.error || 'Invalid activity ID' });
+        return;
+      }
+
+      const activityId = parseInt(id, 10);
+      const user = await this.authService.getUserByStravaId(req.stravaId);
+
+      if (!user) {
+        res.status(HttpStatus.NOT_FOUND).json({ success: false, error: 'User not found' });
+        return;
+      }
+
+      const laps = await this.activitiesService.getActivityLaps(activityId, user);
+
+      if (laps === null) {
+        res.status(HttpStatus.NOT_FOUND).json({ success: false, error: 'Activity not found' });
+        return;
+      }
+
+      res.json({ success: true, data: laps });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   /**
    * POST /api/activities/test/delete
    * Delete activities for testing (cleans up all related data)

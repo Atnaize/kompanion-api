@@ -13,5 +13,10 @@ router.get('/sync/stream', requireAuth, activitiesController.syncWithProgress);
 router.post('/test/delete', requireAuth, activitiesController.deleteActivitiesForTest);
 
 router.get('/:id', requireAuth, activitiesController.getById);
+router.get('/:id/streams', requireAuth, activitiesController.getStreams);
+router.get('/:id/laps', requireAuth, activitiesController.getLaps);
+router.get('/:id/kudoers', requireAuth, activitiesController.getKudoers);
+router.get('/:id/comments', requireAuth, activitiesController.getComments);
+router.get('/:id/photos', requireAuth, activitiesController.getPhotos);
 
 export default router;
