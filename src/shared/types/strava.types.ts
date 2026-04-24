@@ -181,8 +181,23 @@ export interface StravaSegmentEffort {
   }>;
 }
 
+// Strava best effort entry (present on DetailedActivity when type === 'Run').
+// `name` uses Strava's labels: '400m', '1/2 mile', '1K', '1 mile', '2 mile',
+// '5K', '10K', '15K', '10 mile', '20K', 'Half-Marathon', '30K', 'Marathon'.
+export interface StravaBestEffort {
+  id: number;
+  name: string;
+  distance: number;
+  moving_time: number;
+  elapsed_time: number;
+  start_date: string;
+  start_date_local: string;
+  pr_rank: number | null;
+}
+
 export interface StravaDetailedActivity extends StravaActivity {
   segment_efforts?: StravaSegmentEffort[];
+  best_efforts?: StravaBestEffort[];
   calories?: number;
   description?: string;
   device_name?: string;

@@ -9,6 +9,7 @@ import { achievementsRoutes } from './modules/achievements/index.js';
 import { challengeRoutes } from './modules/challenges/index.js';
 import { friendsRoutes } from './modules/friends/index.js';
 import { notificationsRoutes } from './modules/notifications/index.js';
+import { personalRecordsRoutes } from './modules/personal-records/index.js';
 
 const app = express();
 
@@ -59,6 +60,7 @@ app.use('/api/achievements', achievementsRoutes);
 app.use('/api/challenges', challengeRoutes);
 app.use('/api/friends', friendsRoutes);
 app.use('/api/notifications', notificationsRoutes);
+app.use('/api/personal-records', personalRecordsRoutes);
 
 app.use(errorHandler);
 

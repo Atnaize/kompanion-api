@@ -1,8 +1,14 @@
 import axios from 'axios';
 import { config } from '@config/env.js';
-import { prisma } from '@shared/utils/index.js';
+import {
+  parseRateLimitHeaders,
+  prisma,
+  StravaRateLimitError,
+  throwIfRateLimited,
+} from '@shared/utils/index.js';
 import { AuthService } from '../auth/auth.service.js';
 import { ChallengeService } from '../challenges/challenge.service.js';
+import { PersonalRecordsService } from '../personal-records/personal-records.service.js';
 import type {
   StravaActivity,
   StravaComment,
@@ -17,9 +23,14 @@ import type {
 import { AppError } from '@shared/middleware/index.js';
 import { HttpStatus } from '@shared/types/index.js';
 
+// Pause between per-activity Strava calls during PR processing.
+// 5s → 12 req/min, safely under Strava's 200 req / 15 min limit.
+const PR_PROCESSING_DELAY_MS = 500;
+
 export class ActivitiesService {
   private authService = new AuthService();
   private challengeService = new ChallengeService();
+  private personalRecordsService = new PersonalRecordsService();
 
   async fetchActivities(
     user: User,
@@ -51,9 +62,18 @@ export class ActivitiesService {
         }
       );
 
-      console.info('[Fetch] Got', response.data.length, 'activities from Strava');
+      const usage = parseRateLimitHeaders(response.headers);
+      console.info(
+        '[Fetch] Got',
+        response.data.length,
+        'activities from Strava',
+        usage
+          ? `(Strava limit: ${usage.used15min}/${usage.limit15min} 15min, ${usage.usedDay}/${usage.limitDay} day)`
+          : ''
+      );
       return response.data;
     } catch (error) {
+      throwIfRateLimited(error);
       console.error(
         '[Fetch] Error fetching activities:',
         error instanceof Error ? error.message : error
@@ -142,6 +162,9 @@ export class ActivitiesService {
     // Sync new activities to active challenges
     const challengeSync = await this.challengeService.syncActiveChallenges(user.id);
 
+    // Extract personal records for runs that don't have them yet
+    await this.processPersonalRecords(user);
+
     return {
       synced: newActivities.length,
       total: allActivities.length,
@@ -154,7 +177,7 @@ export class ActivitiesService {
   async syncActivitiesWithProgress(
     user: User,
     onProgress: (data: {
-      type: 'fetching' | 'saving' | 'complete' | 'error';
+      type: 'fetching' | 'saving' | 'processing' | 'complete' | 'error';
       current?: number;
       total?: number;
       message?: string;
@@ -266,6 +289,16 @@ export class ActivitiesService {
     // Sync new activities to active challenges
     const challengeSync = await this.challengeService.syncActiveChallenges(user.id);
 
+    // Extract personal records for runs that don't have them yet
+    await this.processPersonalRecords(user, (current, total) => {
+      onProgress({
+        type: 'processing',
+        current,
+        total,
+        message: `Processing personal records... ${current}/${total}`,
+      });
+    });
+
     return {
       synced: newActivities.length,
       total: allActivities.length,
@@ -273,6 +306,50 @@ export class ActivitiesService {
       challengesSynced: challengeSync.synced,
       challengeActivitiesAdded: challengeSync.activitiesAdded,
     };
+  }
+
+  /**
+   * Fetch Strava best_efforts for runs that haven't been processed yet and
+   * persist them as PersonalRecord rows. Resumable — if interrupted, the next
+   * sync picks up remaining activities via `getUnprocessedRunActivityIds`.
+   * Rate-limited to stay under Strava's 200 req / 15 min.
+   */
+  private async processPersonalRecords(
+    user: User,
+    onProgress?: (current: number, total: number) => void
+  ): Promise<void> {
+    const todo = await this.personalRecordsService.getUnprocessedRunActivityIds(user.id);
+
+    if (todo.length === 0) {
+      return;
+    }
+
+    console.info(`[PR] Processing ${todo.length} run(s) for personal records`);
+
+    for (let i = 0; i < todo.length; i++) {
+      try {
+        await this.personalRecordsService.processActivity(todo[i], user.id, user);
+      } catch (error) {
+        if (error instanceof StravaRateLimitError) {
+          console.warn(
+            `[PR] Rate limit reached after ${i} activities — stopping. ${error.message} Remaining ${todo.length - i} will resume on next sync.`
+          );
+          return;
+        }
+        console.error(
+          `[PR] Error processing activity ${todo[i]}:`,
+          error instanceof Error ? error.message : error
+        );
+      }
+
+      onProgress?.(i + 1, todo.length);
+
+      if (i < todo.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, PR_PROCESSING_DELAY_MS));
+      }
+    }
+
+    console.info(`[PR] Finished processing ${todo.length} run(s)`);
   }
 
   async getUserActivities(userId: number): Promise<StravaActivity[]> {

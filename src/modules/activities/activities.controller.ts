@@ -98,7 +98,7 @@ export class ActivitiesController {
       res.flushHeaders();
 
       const sendEvent = (data: {
-        type: 'fetching' | 'saving' | 'complete' | 'error';
+        type: 'fetching' | 'saving' | 'processing' | 'complete' | 'error';
         current?: number;
         total?: number;
         message?: string;

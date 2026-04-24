@@ -39,6 +39,7 @@ model User {
   challengeActivities   ChallengeActivity[]
   pushSubscriptions     PushSubscription[]
   notificationPreferences NotificationPreference?
+  personalRecords       PersonalRecord[]
 
   @@index([stravaId])
   @@map("users")
@@ -76,6 +77,7 @@ model Activity {
 
   // Relations
   user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  personalRecords     PersonalRecord[]
 
   @@index([userId])
   @@index([startDate])
@@ -83,6 +85,27 @@ model Activity {
   @@index([userId, startDate])
   @@index([userId, startDateLocal])
   @@map("activities")
+}
+
+// Personal Records - Best efforts per distance band, Run activities only
+// Source: Strava's `best_efforts` array on DetailedActivity (Run only).
+// Long format: one row per (activity, band). Top-N is an ORDER BY query.
+model PersonalRecord {
+  id              String   @id @default(uuid())
+  userId          Int
+  distanceBand    String   // '400m' | '1km' | '5km' | '10km' | '15km' | 'half_marathon' | 'marathon'
+  distanceMeters  Int      // 400, 1000, 5000, 10000, 15000, 21097, 42195
+  bestTimeSeconds Int      // moving_time from Strava best_effort
+  activityId      BigInt
+  achievedAt      DateTime // start_date of the activity
+
+  // Relations
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activity Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, distanceBand, activityId])
+  @@index([userId, distanceBand, bestTimeSeconds])
+  @@map("personal_records")
 }
 
 // Achievement template - Defines all possible achievements
