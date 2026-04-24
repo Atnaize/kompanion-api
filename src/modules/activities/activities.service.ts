@@ -502,6 +502,7 @@ export class ActivitiesService {
       );
       return response.data;
     } catch (error) {
+      throwIfRateLimited(error);
       console.error(
         '[Kudos] Error fetching kudoers:',
         error instanceof Error ? error.message : error
@@ -532,6 +533,7 @@ export class ActivitiesService {
       );
       return response.data;
     } catch (error) {
+      throwIfRateLimited(error);
       console.error(
         '[Comments] Error fetching comments:',
         error instanceof Error ? error.message : error
@@ -562,6 +564,7 @@ export class ActivitiesService {
       );
       return response.data;
     } catch (error) {
+      throwIfRateLimited(error);
       console.error(
         '[Photos] Error fetching photos:',
         error instanceof Error ? error.message : error
