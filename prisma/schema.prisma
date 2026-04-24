@@ -360,3 +360,49 @@ model ChallengeEvent {
   @@index([challengeId, createdAt]) // For polling queries
   @@map("challenge_events")
 }
+
+// Mirror of the Strava webhook subscription lifecycle.
+// During subscribe: row is inserted with status=pending so the handshake can
+// validate `verify_token`. Once Strava returns the subscription id, we update
+// the row to status=active. We keep historical rows for audit.
+model WebhookSubscription {
+  id             Int      @id @default(autoincrement())
+  stravaId       Int?     @unique         // Null while pending; set after Strava confirms
+  callbackUrl    String
+  verifyToken    String                   // Echoed during the GET handshake
+  status         String   @default("pending") // "pending" | "active" | "deleted"
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deletedAt      DateTime?
+
+  @@index([verifyToken])
+  @@index([status])
+  @@map("webhook_subscriptions")
+}
+
+// Every webhook event we receive — full audit log for debugging.
+model WebhookEvent {
+  id             String    @id @default(uuid())
+  objectType     String    // "activity" | "athlete"
+  objectId       BigInt
+  aspectType     String    // "create" | "update" | "delete"
+  ownerId        BigInt    // Strava athlete ID
+  subscriptionId Int
+  eventTime      DateTime  // From Strava's event_time
+  updates        Json?     // The "updates" hash from Strava
+  rawPayload     Json      // Full POST body for debugging
+  source         String    @default("strava") // "strava" | "simulated"
+
+  receivedAt     DateTime  @default(now())
+  status         String    @default("pending") // "pending" | "processing" | "processed" | "failed" | "skipped"
+  error          String?
+  attempts       Int       @default(0)
+  processedAt    DateTime?
+  processingLog  Json?     // Array of { ts, level, message } for per-event debugging
+
+  @@index([status])
+  @@index([ownerId])
+  @@index([receivedAt])
+  @@index([objectType, objectId, aspectType, eventTime]) // Idempotency lookup
+  @@map("webhook_events")
+}

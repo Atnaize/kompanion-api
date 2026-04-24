@@ -213,6 +213,22 @@ export class AuthService {
     }
   }
 
+  /**
+   * Strava signaled the athlete revoked our app's access. Clear stored tokens
+   * so we don't keep trying to use them. We keep the user row so historical
+   * activities and stats remain visible.
+   */
+  async handleDeauthorization(userId: number): Promise<void> {
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        accessToken: '',
+        refreshToken: '',
+        tokenExpiresAt: BigInt(0),
+      },
+    });
+  }
+
   createSession(user: User): UserSession {
     return {
       userId: user.id,

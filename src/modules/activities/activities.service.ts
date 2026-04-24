@@ -747,6 +747,104 @@ export class ActivitiesService {
     };
   }
 
+  // ─── Webhook helpers ───────────────────────────────────────────────────────
+
+  /**
+   * Fetch one activity from Strava and upsert it into the DB. Used by the
+   * webhook `activity:create` and `activity:update` handlers.
+   */
+  async upsertActivityFromStrava(activityId: number, user: User): Promise<void> {
+    const accessToken = await this.authService.ensureValidToken(user);
+    let activity: StravaActivity;
+    try {
+      const response = await axios.get<StravaActivity>(
+        `${config.strava.apiUrl}/activities/${activityId}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      activity = response.data;
+    } catch (error) {
+      throwIfRateLimited(error);
+      throw error;
+    }
+
+    const data = this.mapStravaActivityToDb(activity, user.id);
+    await prisma.activity.upsert({
+      where: { id: BigInt(activityId) },
+      create: data,
+      update: {
+        name: data.name,
+        type: data.type,
+        sportType: data.sportType,
+        distance: data.distance,
+        movingTime: data.movingTime,
+        elapsedTime: data.elapsedTime,
+        totalElevationGain: data.totalElevationGain,
+        averageSpeed: data.averageSpeed,
+        maxSpeed: data.maxSpeed,
+        averageWatts: data.averageWatts,
+        kilojoules: data.kilojoules,
+        averageHeartrate: data.averageHeartrate,
+        maxHeartrate: data.maxHeartrate,
+        elevHigh: data.elevHigh,
+        elevLow: data.elevLow,
+        kudosCount: data.kudosCount,
+        achievementCount: data.achievementCount,
+        prCount: data.prCount,
+        summaryPolyline: data.summaryPolyline,
+        manual: data.manual,
+        trainer: data.trainer,
+      },
+    });
+  }
+
+  /**
+   * Apply Strava update-event field changes. Strava only sends `title`, `type`,
+   * and `private` in update events.
+   */
+  async updateActivityFields(
+    activityId: number,
+    userId: number,
+    updates: Record<string, string>
+  ): Promise<void> {
+    const data: Record<string, string> = {};
+    if (typeof updates.title === 'string') data.name = updates.title;
+    if (typeof updates.type === 'string') {
+      data.type = updates.type;
+      data.sportType = updates.type;
+    }
+    // `private` is not tracked in our schema; ignored intentionally.
+
+    if (Object.keys(data).length === 0) return;
+
+    await prisma.activity.updateMany({
+      where: { id: BigInt(activityId), userId },
+      data,
+    });
+  }
+
+  /** Delete an activity owned by `userId`. Cascades to related rows. */
+  async deleteActivityById(activityId: number, userId: number): Promise<void> {
+    await prisma.activity.deleteMany({
+      where: { id: BigInt(activityId), userId },
+    });
+  }
+
+  /**
+   * After inserting/updating an activity, recompute that user's challenge
+   * progress and personal records. Wraps the existing batch helpers.
+   */
+  async syncChallengesAndPRs(user: User): Promise<{
+    challengesSynced: number;
+    challengeActivitiesAdded: number;
+  }> {
+    const challengeSync = await this.challengeService.syncActiveChallenges(user.id);
+    await this.processPersonalRecords(user);
+    return {
+      challengesSynced: challengeSync.synced,
+      challengeActivitiesAdded: challengeSync.activitiesAdded,
+    };
+  }
+
   /**
    * Map Strava API activity to database model
    */
