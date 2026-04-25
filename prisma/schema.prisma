@@ -67,6 +67,8 @@ model Activity {
   elevHigh            Float?
   elevLow             Float?
   kudosCount          Int      @default(0)
+  commentCount        Int      @default(0)
+  photoCount          Int      @default(0) // total_photo_count from Strava (includes Instagram + native)
   achievementCount    Int      @default(0)
   prCount             Int      @default(0)
   summaryPolyline     String?
@@ -78,6 +80,9 @@ model Activity {
   // Relations
   user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   personalRecords     PersonalRecord[]
+  kudoers             ActivityKudoer[]
+  comments            ActivityComment[]
+  photos              ActivityPhoto[]
 
   @@index([userId])
   @@index([startDate])
@@ -359,6 +364,60 @@ model ChallengeEvent {
 
   @@index([challengeId, createdAt]) // For polling queries
   @@map("challenge_events")
+}
+
+// Cached kudoers for an activity. Replaced wholesale when the count on the
+// parent Activity row diverges from the number of cached rows.
+//
+// Note: Strava's `/activities/{id}/kudos` endpoint intentionally returns
+// minimal data — only firstname + lastname + resource_state. No athlete id,
+// no profile pictures. Hence athleteId / profile fields are nullable.
+model ActivityKudoer {
+  id            String  @id @default(uuid())
+  activityId    BigInt
+  athleteId     BigInt? // Strava athlete id — usually omitted by /kudos
+  firstname     String?
+  lastname      String?
+  profile       String?
+  profileMedium String?
+
+  activity      Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@index([activityId])
+  @@map("activity_kudoers")
+}
+
+// Cached comments. Strava comment ids are stable, so we keep them as PK.
+model ActivityComment {
+  id                   BigInt   @id // Strava comment id
+  activityId           BigInt
+  athleteId            BigInt
+  athleteFirstname     String?
+  athleteLastname      String?
+  athleteProfile       String?
+  athleteProfileMedium String?
+  text                 String
+  commentedAt          DateTime // Strava's `created_at`
+
+  activity             Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@index([activityId])
+  @@map("activity_comments")
+}
+
+// Cached activity photos. unique_id is Strava's stable PK.
+model ActivityPhoto {
+  uniqueId      String  @id // Strava `unique_id`
+  activityId    BigInt
+  caption       String?
+  urls          Json    // { "100": "...", "600": "...", "2048": "..." }
+  defaultPhoto  Boolean @default(false)
+  takenAt       DateTime?
+
+  activity      Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@index([activityId])
+  @@map("activity_photos")
 }
 
 // Mirror of the Strava webhook subscription lifecycle.

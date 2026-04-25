@@ -27,6 +27,16 @@ import { HttpStatus } from '@shared/types/index.js';
 // 5s → 12 req/min, safely under Strava's 200 req / 15 min limit.
 const PR_PROCESSING_DELAY_MS = 500;
 
+// Stable, positive 32-bit-ish int hash of a string. Used as a React-key
+// fallback when Strava returns kudoers without athlete ids.
+const hashString = (s: string): number => {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = (h * 31 + s.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
+};
+
 export class ActivitiesService {
   private authService = new AuthService();
   private challengeService = new ChallengeService();
@@ -401,7 +411,27 @@ export class ActivitiesService {
         }
       );
 
-      return response.data;
+      // Refresh the cached counts so the engagement cache logic can detect
+      // staleness. We swallow errors here because the user shouldn't see a
+      // working detail page broken by a count-write failure.
+      const fresh = response.data;
+      try {
+        await prisma.activity.update({
+          where: { id: BigInt(activityId) },
+          data: {
+            kudosCount: fresh.kudos_count,
+            commentCount: fresh.comment_count,
+            photoCount: fresh.total_photo_count,
+          },
+        });
+      } catch (writeErr) {
+        console.warn(
+          '[Detail] Failed to refresh cached counts (non-fatal):',
+          writeErr instanceof Error ? writeErr.message : writeErr
+        );
+      }
+
+      return fresh;
     } catch (error) {
       console.error('Fetch detailed activity error:', error);
       // Fall back to basic activity data if detailed fetch fails
@@ -480,18 +510,160 @@ export class ActivitiesService {
     }
   }
 
+  /**
+   * Cache strategy for kudoers/comments/photos:
+   *   - if expectedCount === 0:                  return [] (no Strava call)
+   *   - if cachedCount === expectedCount:        serve from DB (no Strava call)
+   *   - else:                                    fetch from Strava, replace cache
+   *
+   * `expectedCount` lives on the Activity row (kudosCount / commentCount /
+   * photoCount). It's refreshed every time `getDetailedActivityById` runs and
+   * every time we sync activities, so opening the detail page self-heals.
+   */
+
   async getActivityKudoers(activityId: number, user: User): Promise<StravaSummaryAthlete[] | null> {
     const dbActivity = await prisma.activity.findFirst({
       where: { id: BigInt(activityId), userId: user.id },
-      select: { id: true },
+      select: { id: true, kudosCount: true },
     });
+    if (!dbActivity) return null;
 
-    if (!dbActivity) {
-      return null;
+    const expected = dbActivity.kudosCount;
+    if (expected === 0) return [];
+
+    const cached = await prisma.activityKudoer.findMany({
+      where: { activityId: BigInt(activityId) },
+      orderBy: { id: 'asc' },
+    });
+    if (cached.length === expected) {
+      return cached.map((k) => this.kudoerToStrava(k));
     }
 
-    const accessToken = await this.authService.ensureValidToken(user);
+    console.info(
+      `[Kudos] Cache stale (cached=${cached.length}, expected=${expected}); refetching`
+    );
+    const fresh = await this.fetchKudoersFromStrava(activityId, user);
+    if (fresh === null) return cached.map((k) => this.kudoerToStrava(k));
 
+    await prisma.activityKudoer.deleteMany({ where: { activityId: BigInt(activityId) } });
+    if (fresh.length > 0) {
+      await prisma.activityKudoer.createMany({
+        data: fresh.map((a) => ({
+          activityId: BigInt(activityId),
+          athleteId: a.id ? BigInt(a.id) : null,
+          firstname: a.firstname,
+          lastname: a.lastname,
+          profile: a.profile ?? null,
+          profileMedium: a.profile_medium ?? null,
+        })),
+      });
+    }
+    // Re-read so cached and fresh paths return identical shapes (synthesized ids etc).
+    const refreshed = await prisma.activityKudoer.findMany({
+      where: { activityId: BigInt(activityId) },
+      orderBy: { id: 'asc' },
+    });
+    return refreshed.map((k) => this.kudoerToStrava(k));
+  }
+
+  async getActivityComments(activityId: number, user: User): Promise<StravaComment[] | null> {
+    const dbActivity = await prisma.activity.findFirst({
+      where: { id: BigInt(activityId), userId: user.id },
+      select: { id: true, commentCount: true },
+    });
+    if (!dbActivity) return null;
+
+    const expected = dbActivity.commentCount;
+    if (expected === 0) return [];
+
+    const cached = await prisma.activityComment.findMany({
+      where: { activityId: BigInt(activityId) },
+      orderBy: { commentedAt: 'asc' },
+    });
+    if (cached.length === expected) {
+      return cached.map((c) => this.commentToStrava(c, activityId));
+    }
+
+    console.info(
+      `[Comments] Cache stale (cached=${cached.length}, expected=${expected}); refetching`
+    );
+    const fresh = await this.fetchCommentsFromStrava(activityId, user);
+    if (fresh === null) return cached.map((c) => this.commentToStrava(c, activityId));
+
+    await prisma.activityComment.deleteMany({ where: { activityId: BigInt(activityId) } });
+    if (fresh.length > 0) {
+      await prisma.activityComment.createMany({
+        data: fresh.map((c) => ({
+          id: BigInt(c.id),
+          activityId: BigInt(activityId),
+          athleteId: BigInt(c.athlete.id),
+          athleteFirstname: c.athlete.firstname,
+          athleteLastname: c.athlete.lastname,
+          athleteProfile: c.athlete.profile ?? null,
+          athleteProfileMedium: c.athlete.profile_medium ?? null,
+          text: c.text,
+          commentedAt: new Date(c.created_at),
+        })),
+        skipDuplicates: true,
+      });
+    }
+    const refreshed = await prisma.activityComment.findMany({
+      where: { activityId: BigInt(activityId) },
+      orderBy: { commentedAt: 'asc' },
+    });
+    return refreshed.map((c) => this.commentToStrava(c, activityId));
+  }
+
+  async getActivityPhotos(activityId: number, user: User): Promise<StravaPhoto[] | null> {
+    const dbActivity = await prisma.activity.findFirst({
+      where: { id: BigInt(activityId), userId: user.id },
+      select: { id: true, photoCount: true },
+    });
+    if (!dbActivity) return null;
+
+    const expected = dbActivity.photoCount;
+    if (expected === 0) return [];
+
+    const cached = await prisma.activityPhoto.findMany({
+      where: { activityId: BigInt(activityId) },
+    });
+    if (cached.length === expected) {
+      return cached.map((p) => this.photoToStrava(p, activityId));
+    }
+
+    console.info(
+      `[Photos] Cache stale (cached=${cached.length}, expected=${expected}); refetching`
+    );
+    const fresh = await this.fetchPhotosFromStrava(activityId, user);
+    if (fresh === null) return cached.map((p) => this.photoToStrava(p, activityId));
+
+    await prisma.activityPhoto.deleteMany({ where: { activityId: BigInt(activityId) } });
+    if (fresh.length > 0) {
+      await prisma.activityPhoto.createMany({
+        data: fresh.map((p) => ({
+          uniqueId: p.unique_id,
+          activityId: BigInt(activityId),
+          caption: p.caption ?? null,
+          urls: p.urls,
+          defaultPhoto: !!p.default_photo,
+          takenAt: p.uploaded_at ? new Date(p.uploaded_at) : null,
+        })),
+        skipDuplicates: true,
+      });
+    }
+    const refreshed = await prisma.activityPhoto.findMany({
+      where: { activityId: BigInt(activityId) },
+    });
+    return refreshed.map((p) => this.photoToStrava(p, activityId));
+  }
+
+  // ─── Strava fetch helpers (return null if rate-limited / network error) ────
+
+  private async fetchKudoersFromStrava(
+    activityId: number,
+    user: User
+  ): Promise<StravaSummaryAthlete[] | null> {
+    const accessToken = await this.authService.ensureValidToken(user);
     try {
       const response = await axios.get<StravaSummaryAthlete[]>(
         `${config.strava.apiUrl}/activities/${activityId}/kudos`,
@@ -507,22 +679,15 @@ export class ActivitiesService {
         '[Kudos] Error fetching kudoers:',
         error instanceof Error ? error.message : error
       );
-      return [];
+      return null;
     }
   }
 
-  async getActivityComments(activityId: number, user: User): Promise<StravaComment[] | null> {
-    const dbActivity = await prisma.activity.findFirst({
-      where: { id: BigInt(activityId), userId: user.id },
-      select: { id: true },
-    });
-
-    if (!dbActivity) {
-      return null;
-    }
-
+  private async fetchCommentsFromStrava(
+    activityId: number,
+    user: User
+  ): Promise<StravaComment[] | null> {
     const accessToken = await this.authService.ensureValidToken(user);
-
     try {
       const response = await axios.get<StravaComment[]>(
         `${config.strava.apiUrl}/activities/${activityId}/comments`,
@@ -538,22 +703,15 @@ export class ActivitiesService {
         '[Comments] Error fetching comments:',
         error instanceof Error ? error.message : error
       );
-      return [];
+      return null;
     }
   }
 
-  async getActivityPhotos(activityId: number, user: User): Promise<StravaPhoto[] | null> {
-    const dbActivity = await prisma.activity.findFirst({
-      where: { id: BigInt(activityId), userId: user.id },
-      select: { id: true },
-    });
-
-    if (!dbActivity) {
-      return null;
-    }
-
+  private async fetchPhotosFromStrava(
+    activityId: number,
+    user: User
+  ): Promise<StravaPhoto[] | null> {
     const accessToken = await this.authService.ensureValidToken(user);
-
     try {
       const response = await axios.get<StravaPhoto[]>(
         `${config.strava.apiUrl}/activities/${activityId}/photos`,
@@ -569,8 +727,81 @@ export class ActivitiesService {
         '[Photos] Error fetching photos:',
         error instanceof Error ? error.message : error
       );
-      return [];
+      return null;
     }
+  }
+
+  // ─── DB row → Strava response shape ────────────────────────────────────────
+
+  private kudoerToStrava(k: {
+    id: string;
+    athleteId: bigint | null;
+    firstname: string | null;
+    lastname: string | null;
+    profile: string | null;
+    profileMedium: string | null;
+  }): StravaSummaryAthlete {
+    // /kudos doesn't always return an athlete id; fall back to a numeric
+    // hash of our row uuid so the frontend has a stable React key.
+    const id = k.athleteId !== null ? Number(k.athleteId) : hashString(k.id);
+    return {
+      id,
+      firstname: k.firstname ?? '',
+      lastname: k.lastname ?? '',
+      profile: k.profile ?? undefined,
+      profile_medium: k.profileMedium ?? undefined,
+    };
+  }
+
+  private commentToStrava(
+    c: {
+      id: bigint;
+      athleteId: bigint;
+      athleteFirstname: string | null;
+      athleteLastname: string | null;
+      athleteProfile: string | null;
+      athleteProfileMedium: string | null;
+      text: string;
+      commentedAt: Date;
+    },
+    activityId: number
+  ): StravaComment {
+    return {
+      id: Number(c.id),
+      activity_id: activityId,
+      text: c.text,
+      created_at: c.commentedAt.toISOString(),
+      athlete: {
+        id: Number(c.athleteId),
+        firstname: c.athleteFirstname ?? '',
+        lastname: c.athleteLastname ?? '',
+        profile: c.athleteProfile ?? undefined,
+        profile_medium: c.athleteProfileMedium ?? undefined,
+      },
+    };
+  }
+
+  private photoToStrava(
+    p: {
+      uniqueId: string;
+      caption: string | null;
+      urls: unknown;
+      defaultPhoto: boolean;
+      takenAt: Date | null;
+    },
+    activityId: number
+  ): StravaPhoto {
+    return {
+      id: null,
+      unique_id: p.uniqueId,
+      urls: (p.urls as Record<string, string>) ?? {},
+      source: 1,
+      activity_id: activityId,
+      resource_state: 2,
+      caption: p.caption ?? null,
+      default_photo: p.defaultPhoto,
+      uploaded_at: p.takenAt ? p.takenAt.toISOString() : undefined,
+    };
   }
 
   /**
@@ -788,6 +1019,8 @@ export class ActivitiesService {
         elevHigh: data.elevHigh,
         elevLow: data.elevLow,
         kudosCount: data.kudosCount,
+        commentCount: data.commentCount,
+        photoCount: data.photoCount,
         achievementCount: data.achievementCount,
         prCount: data.prCount,
         summaryPolyline: data.summaryPolyline,
@@ -872,6 +1105,8 @@ export class ActivitiesService {
     elevHigh: number | undefined;
     elevLow: number | undefined;
     kudosCount: number;
+    commentCount: number;
+    photoCount: number;
     achievementCount: number;
     prCount: number;
     summaryPolyline: string | null;
@@ -900,6 +1135,8 @@ export class ActivitiesService {
       elevHigh: activity.elev_high,
       elevLow: activity.elev_low,
       kudosCount: activity.kudos_count,
+      commentCount: activity.comment_count,
+      photoCount: activity.total_photo_count,
       achievementCount: activity.achievement_count,
       prCount: activity.pr_count,
       summaryPolyline: activity.map?.summary_polyline || null,
