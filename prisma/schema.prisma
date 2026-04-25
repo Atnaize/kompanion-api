@@ -391,7 +391,7 @@ model ActivityKudoer {
 model ActivityComment {
   id                   BigInt   @id // Strava comment id
   activityId           BigInt
-  athleteId            BigInt
+  athleteId            BigInt?  // null when Strava strips the athlete (deleted / blocked / privacy)
   athleteFirstname     String?
   athleteLastname      String?
   athleteProfile       String?

@@ -590,28 +590,63 @@ export class ActivitiesService {
     const fresh = await this.fetchCommentsFromStrava(activityId, user);
     if (fresh === null) return cached.map((c) => this.commentToStrava(c, activityId));
 
-    await prisma.activityComment.deleteMany({ where: { activityId: BigInt(activityId) } });
-    if (fresh.length > 0) {
-      await prisma.activityComment.createMany({
-        data: fresh.map((c) => ({
+    // Strava occasionally strips the athlete from comments (deleted / blocked /
+    // privacy). Tolerate a missing athleteId rather than dropping the comment.
+    // Skip only when truly required fields (id, text, created_at) are bad.
+    const persistable = fresh.flatMap((c) => {
+      const createdAt = c.created_at ? new Date(c.created_at) : null;
+      if (
+        c.id === undefined ||
+        c.id === null ||
+        typeof c.text !== 'string' ||
+        !createdAt ||
+        Number.isNaN(createdAt.getTime())
+      ) {
+        console.warn(`[Comments] Skipping malformed comment for activity ${activityId}:`, {
+          id: c.id,
+          athleteId: c.athlete?.id,
+          hasText: typeof c.text === 'string',
+          createdAt: c.created_at,
+        });
+        return [];
+      }
+      return [
+        {
           id: BigInt(c.id),
           activityId: BigInt(activityId),
-          athleteId: BigInt(c.athlete.id),
-          athleteFirstname: c.athlete.firstname,
-          athleteLastname: c.athlete.lastname,
-          athleteProfile: c.athlete.profile ?? null,
-          athleteProfileMedium: c.athlete.profile_medium ?? null,
+          athleteId: c.athlete?.id ? BigInt(c.athlete.id) : null,
+          athleteFirstname: c.athlete?.firstname ?? null,
+          athleteLastname: c.athlete?.lastname ?? null,
+          athleteProfile: c.athlete?.profile ?? null,
+          athleteProfileMedium: c.athlete?.profile_medium ?? null,
           text: c.text,
-          commentedAt: new Date(c.created_at),
-        })),
-        skipDuplicates: true,
-      });
-    }
-    const refreshed = await prisma.activityComment.findMany({
-      where: { activityId: BigInt(activityId) },
-      orderBy: { commentedAt: 'asc' },
+          commentedAt: createdAt,
+        },
+      ];
     });
-    return refreshed.map((c) => this.commentToStrava(c, activityId));
+
+    try {
+      await prisma.activityComment.deleteMany({ where: { activityId: BigInt(activityId) } });
+      if (persistable.length > 0) {
+        await prisma.activityComment.createMany({
+          data: persistable,
+          skipDuplicates: true,
+        });
+      }
+      const refreshed = await prisma.activityComment.findMany({
+        where: { activityId: BigInt(activityId) },
+        orderBy: { commentedAt: 'asc' },
+      });
+      return refreshed.map((c) => this.commentToStrava(c, activityId));
+    } catch (error) {
+      // If persist fails, still serve the freshly-fetched data so the user gets
+      // their comments. The cache will retry next time.
+      console.error(
+        `[Comments] Failed to persist comments for activity ${activityId}:`,
+        error instanceof Error ? error.stack || error.message : error
+      );
+      return fresh;
+    }
   }
 
   async getActivityPhotos(activityId: number, user: User): Promise<StravaPhoto[] | null> {
@@ -756,7 +791,7 @@ export class ActivitiesService {
   private commentToStrava(
     c: {
       id: bigint;
-      athleteId: bigint;
+      athleteId: bigint | null;
       athleteFirstname: string | null;
       athleteLastname: string | null;
       athleteProfile: string | null;
@@ -766,13 +801,16 @@ export class ActivitiesService {
     },
     activityId: number
   ): StravaComment {
+    // Fall back to a hash of the comment id when the athlete was stripped, so
+    // the frontend has a stable, non-colliding React key.
+    const athleteId = c.athleteId !== null ? Number(c.athleteId) : hashString(c.id.toString());
     return {
       id: Number(c.id),
       activity_id: activityId,
       text: c.text,
       created_at: c.commentedAt.toISOString(),
       athlete: {
-        id: Number(c.athleteId),
+        id: athleteId,
         firstname: c.athleteFirstname ?? '',
         lastname: c.athleteLastname ?? '',
         profile: c.athleteProfile ?? undefined,
