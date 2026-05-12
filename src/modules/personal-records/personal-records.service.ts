@@ -7,6 +7,7 @@ import {
   throwIfRateLimited,
 } from '@shared/utils/index.js';
 import { AuthService } from '../auth/auth.service.js';
+import { feedEventEmitter } from '../feed/index.js';
 import type { StravaBestEffort, StravaDetailedActivity, User } from '@shared/types/index.js';
 
 // Bands we persist (metric-only subset of Strava's best_efforts set).
@@ -141,12 +142,16 @@ export class PersonalRecordsService {
           bestTimeSeconds: effort.moving_time,
           activityId,
           achievedAt: new Date(effort.start_date),
+          // Strava's pr_rank: 1 = personal best, 2 = 2nd-best, 3 = 3rd-best.
+          // We only emit feed events for pr_rank === 1.
+          prRank: effort.pr_rank ?? null,
         };
       })
       .filter((r): r is NonNullable<typeof r> => r !== null);
 
     for (const row of rows) {
-      await prisma.personalRecord.upsert({
+      const { prRank, ...prData } = row;
+      const upserted = await prisma.personalRecord.upsert({
         where: {
           userId_distanceBand_activityId: {
             userId: row.userId,
@@ -154,13 +159,40 @@ export class PersonalRecordsService {
             activityId: row.activityId,
           },
         },
-        create: row,
+        create: prData,
         update: {
           bestTimeSeconds: row.bestTimeSeconds,
           distanceMeters: row.distanceMeters,
           achievedAt: row.achievedAt,
         },
       });
+
+      // Feed emission: only on actual personal bests, de-duped by PR row id so
+      // re-processing the same activity won't double-emit.
+      if (prRank === 1) {
+        const existing = await prisma.feedEvent.findFirst({
+          where: {
+            type: 'pr_set',
+            entityType: 'personal_record',
+            entityId: upserted.id,
+          },
+          select: { id: true },
+        });
+        if (!existing) {
+          await feedEventEmitter
+            .record(
+              userId,
+              {
+                type: 'pr_set',
+                entityType: 'personal_record',
+                entityId: upserted.id,
+                metadata: { band: row.distanceBand, timeSeconds: row.bestTimeSeconds },
+              },
+              row.achievedAt
+            )
+            .catch((err) => console.error('[Feed] pr_set emit failed:', err));
+        }
+      }
     }
 
     await prisma.activity.update({

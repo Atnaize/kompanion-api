@@ -80,6 +80,9 @@ export class NotificationsService {
       challengeInvites?: boolean;
       challengeProgress?: boolean;
       challengeReminders?: boolean;
+      friendRequests?: boolean;
+      friendAccepted?: boolean;
+      achievementUnlocked?: boolean;
     }
   ): Promise<NotificationPreference> {
     return await prisma.notificationPreference.upsert({

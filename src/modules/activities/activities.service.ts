@@ -4,6 +4,7 @@ import { parseRateLimitHeaders, prisma, throwIfRateLimited } from '@shared/utils
 import { AuthService } from '../auth/auth.service.js';
 import { ChallengeService } from '../challenges/challenge.service.js';
 import { PersonalRecordsService } from '../personal-records/personal-records.service.js';
+import { feedEventEmitter } from '../feed/index.js';
 import type {
   StravaActivity,
   StravaComment,
@@ -162,6 +163,14 @@ export class ActivitiesService {
       });
     }
 
+    // Emit FeedEvents for the newly inserted activities. Best-effort: failures
+    // here must not break sync.
+    if (newActivities.length > 0) {
+      await this.emitActivityPostedEvents(user.id, newActivities).catch((err) =>
+        console.error('[Feed] activity_posted bulk emit failed:', err)
+      );
+    }
+
     // Sync new activities to active challenges
     const challengeSync = await this.challengeService.syncActiveChallenges(user.id);
 
@@ -287,6 +296,13 @@ export class ActivitiesService {
         where: { id: user.id },
         data: { lastSyncedAt: new Date() },
       });
+    }
+
+    // Emit FeedEvents for newly inserted activities (best-effort).
+    if (newActivities.length > 0) {
+      await this.emitActivityPostedEvents(user.id, newActivities).catch((err) =>
+        console.error('[Feed] activity_posted bulk emit failed:', err)
+      );
     }
 
     // Sync new activities to active challenges
@@ -978,6 +994,13 @@ export class ActivitiesService {
       throw error;
     }
 
+    // Snapshot the existing row (if any) so we can detect create vs update +
+    // photoCount delta for feed emission.
+    const previous = await prisma.activity.findUnique({
+      where: { id: BigInt(activityId) },
+      select: { id: true, photoCount: true },
+    });
+
     const data = this.mapStravaActivityToDb(activity, user.id);
     await prisma.activity.upsert({
       where: { id: BigInt(activityId) },
@@ -1008,6 +1031,11 @@ export class ActivitiesService {
         trainer: data.trainer,
       },
     });
+
+    // Feed emission (best-effort).
+    await this.emitFeedForUpsert(user.id, activity, data, previous?.photoCount ?? null).catch(
+      (err) => console.error('[Feed] upsert emit failed:', err)
+    );
   }
 
   /**
@@ -1056,6 +1084,76 @@ export class ActivitiesService {
       challengesSynced: challengeSync.synced,
       challengeActivitiesAdded: challengeSync.activitiesAdded,
     };
+  }
+
+  /**
+   * Emit one `activity_posted` FeedEvent per newly synced Strava activity.
+   * Goes through `feedEventEmitter` (A1) so future cross-cutting concerns
+   * (debounce, batching) land in one place.
+   */
+  private async emitActivityPostedEvents(
+    userId: number,
+    activities: StravaActivity[]
+  ): Promise<void> {
+    if (activities.length === 0) return;
+    await feedEventEmitter.recordMany(
+      activities.map((a) => ({
+        actorId: userId,
+        createdAt: new Date(a.start_date),
+        payload: {
+          type: 'activity_posted',
+          entityType: 'activity',
+          entityId: String(a.id),
+          metadata: {
+            name: a.name,
+            type: a.type,
+            distance: a.distance,
+            movingTime: a.moving_time,
+            totalElevationGain: a.total_elevation_gain,
+            averageSpeed: a.average_speed,
+          },
+        },
+      }))
+    );
+  }
+
+  /**
+   * Emit feed events for a webhook upsert: `activity_posted` when this is the
+   * first time we see the activity, `photo_added` when the photoCount grew.
+   */
+  private async emitFeedForUpsert(
+    userId: number,
+    strava: StravaActivity,
+    data: ReturnType<typeof this.mapStravaActivityToDb>,
+    previousPhotoCount: number | null
+  ): Promise<void> {
+    if (previousPhotoCount === null) {
+      // Create.
+      await feedEventEmitter.record(userId, {
+        type: 'activity_posted',
+        entityType: 'activity',
+        entityId: String(strava.id),
+        metadata: {
+          name: data.name,
+          type: data.type,
+          distance: data.distance,
+          movingTime: data.movingTime,
+          totalElevationGain: data.totalElevationGain,
+          averageSpeed: data.averageSpeed,
+        },
+      });
+      return;
+    }
+    // Update — only emit if photos were added.
+    const delta = data.photoCount - previousPhotoCount;
+    if (delta > 0) {
+      await feedEventEmitter.record(userId, {
+        type: 'photo_added',
+        entityType: 'activity',
+        entityId: String(strava.id),
+        metadata: { count: delta },
+      });
+    }
   }
 
   /**

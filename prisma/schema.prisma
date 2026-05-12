@@ -43,9 +43,84 @@ model User {
   stravaApiUsage        StravaApiUsage[]
   stravaApiGrantsReceived StravaApiGrant[] @relation("GrantRecipient")
   stravaApiGrantsIssued   StravaApiGrant[] @relation("GrantIssuer")
+  friendshipsOut          Friendship[]     @relation("FriendshipRequester")
+  friendshipsIn           Friendship[]     @relation("FriendshipAddressee")
+  feedEvents              FeedEvent[]
+  notifications           Notification[] @relation("NotificationRecipient")
+  notificationsCaused     Notification[] @relation("NotificationActor")
 
   @@index([stravaId])
   @@map("users")
+}
+
+// FeedEvent - polymorphic event stream backing the unified feed (M2).
+// One row per "newsworthy" thing a user did (posted an activity, set a PR,
+// joined a challenge, …). The frontend feed query filters by `actorId IN
+// (friend ids)` and renders by `type` via a renderer registry, so adding a
+// new event type is a new string value + a new component — no schema change.
+model FeedEvent {
+  id          BigInt   @id @default(autoincrement())
+  actorId     Int
+  type        String   // see registry in src/modules/feed/feed.types.ts
+  entityType  String?  // "activity" | "achievement" | "personal_record" | "challenge" | ...
+  entityId    String?  // String so we can hold BigInt activity ids or UUID challenge ids
+  metadata    Json?    // per-type payload (e.g. { name, distance, activityType })
+  createdAt   DateTime @default(now())
+
+  actor       User @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  @@index([actorId, createdAt])
+  @@index([createdAt])
+  @@map("feed_events")
+}
+
+// Notification - inbox of "newsworthy" things for one specific user (M3).
+// Polymorphic discriminator-on-`type` exactly like FeedEvent; adding a new
+// notification type is one new string value + one new renderer.
+//
+// Why a separate table from FeedEvent? FeedEvent is a public stream filtered
+// by friendship; Notification is private to the recipient and tracks read state.
+model Notification {
+  id          BigInt    @id @default(autoincrement())
+  userId      Int                 // recipient
+  type        String              // e.g. "friend_request", "friend_accepted", "achievement_unlocked", "challenge_invite", "challenge_joined"
+  actorId     Int?                // who caused it (null for system events)
+  entityType  String?             // "user" | "achievement" | "challenge" | …
+  entityId    String?
+  metadata    Json?
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  user        User @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  actor       User? @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([userId, readAt, createdAt])
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+// Friendship - symmetric, approval-based relationship between two users.
+// One row per pair (requester, addressee). Status moves PENDING -> ACCEPTED.
+// Cancel/decline = hard delete. Unfriend = delete an ACCEPTED row.
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+}
+
+model Friendship {
+  id           Int               @id @default(autoincrement())
+  requesterId  Int
+  addresseeId  Int
+  status       FriendshipStatus
+  createdAt    DateTime          @default(now())
+  acceptedAt   DateTime?
+
+  requester    User @relation("FriendshipRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee    User @relation("FriendshipAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+
+  @@unique([requesterId, addresseeId])
+  @@index([addresseeId, status])
+  @@index([requesterId, status])
+  @@map("friendships")
 }
 
 // Activity model - Strava activities
@@ -261,10 +336,17 @@ model NotificationPreference {
   id                          Int      @id @default(autoincrement())
   userId                      Int      @unique
 
-  // Notification types
+  // Challenge-related (legacy fields, pre-M3)
   challengeInvites            Boolean  @default(true)
   challengeProgress           Boolean  @default(true)
   challengeReminders          Boolean  @default(true)
+
+  // Friend-related (M3)
+  friendRequests              Boolean  @default(true)
+  friendAccepted              Boolean  @default(true)
+
+  // Achievement-related (M3)
+  achievementUnlocked         Boolean  @default(true)
 
   createdAt                   DateTime @default(now())
   updatedAt                   DateTime @updatedAt

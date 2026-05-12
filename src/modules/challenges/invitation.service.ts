@@ -2,6 +2,8 @@ import { prisma } from '@shared/utils/index.js';
 import type { ChallengeParticipant, ChallengeTargets } from '@shared/types/index.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { ChallengeService } from './challenge.service.js';
+import { feedEventEmitter } from '../feed/index.js';
+import { notificationEmitter } from '../inbox/index.js';
 
 export class InvitationService {
   private notificationsService = new NotificationsService();
@@ -87,6 +89,24 @@ export class InvitationService {
           })
       )
     );
+
+    // Inbox notification per invited user.
+    await Promise.allSettled(
+      newUserIds.map((userId) =>
+        notificationEmitter
+          .record(
+            userId,
+            {
+              type: 'challenge_invite',
+              entityType: 'challenge',
+              entityId: challengeId,
+              metadata: { challengeName: challenge.name, creatorName },
+            },
+            { actorId: creatorId }
+          )
+          .catch((err) => console.error(`[Inbox] challenge_invite emit failed:`, err))
+      )
+    );
   }
 
   /**
@@ -169,6 +189,37 @@ export class InvitationService {
         [userId],
         targets.activityType
       );
+    }
+
+    // Feed emission (best-effort).
+    await feedEventEmitter
+      .record(userId, {
+        type: 'challenge_joined',
+        entityType: 'challenge',
+        entityId: challengeId,
+        metadata: { name: challenge.name },
+      })
+      .catch((err) => console.error('[Feed] challenge_joined emit failed:', err));
+
+    // Inbox notification to the challenge creator (when someone else joins).
+    if (challenge.creatorId !== userId) {
+      const joiner = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { firstname: true, lastname: true },
+      });
+      const joinerName = joiner ? `${joiner.firstname} ${joiner.lastname}` : 'Someone';
+      await notificationEmitter
+        .record(
+          challenge.creatorId,
+          {
+            type: 'challenge_joined',
+            entityType: 'challenge',
+            entityId: challengeId,
+            metadata: { challengeName: challenge.name, joinerName },
+          },
+          { actorId: userId }
+        )
+        .catch((err) => console.error('[Inbox] challenge_joined emit failed:', err));
     }
 
     return updated as unknown as ChallengeParticipant;

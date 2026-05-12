@@ -1,5 +1,7 @@
 import { prisma } from '@shared/utils/index.js';
 import { AchievementProgressService } from './achievement-progress.service.js';
+import { feedEventEmitter } from '../feed/index.js';
+import { notificationEmitter } from '../inbox/index.js';
 import type { Achievement, UserStats } from '@shared/types/index.js';
 
 export class AchievementsService {
@@ -167,6 +169,25 @@ export class AchievementsService {
         achievementId,
       },
     });
+
+    // Feed + inbox emission (best-effort).
+    await feedEventEmitter
+      .record(userId, {
+        type: 'achievement_unlocked',
+        entityType: 'achievement',
+        entityId: achievement.id,
+        metadata: { name: achievement.name, rarity: achievement.rarity },
+      })
+      .catch((err) => console.error('[Feed] achievement_unlocked emit failed:', err));
+
+    await notificationEmitter
+      .record(userId, {
+        type: 'achievement_unlocked',
+        entityType: 'achievement',
+        entityId: achievement.id,
+        metadata: { achievementName: achievement.name, rarity: achievement.rarity },
+      })
+      .catch((err) => console.error('[Inbox] achievement_unlocked emit failed:', err));
 
     return {
       id: achievement.id,

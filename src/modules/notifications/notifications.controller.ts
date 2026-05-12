@@ -107,31 +107,29 @@ export class NotificationsController {
         return;
       }
 
-      const updates = req.body as {
-        challengeInvites?: unknown;
-        achievementUnlocks?: unknown;
-        challengeProgress?: unknown;
-        challengeReminders?: unknown;
-      };
+      const updates = req.body as Record<string, unknown>;
 
       const validatedUpdates: {
         challengeInvites?: boolean;
-        achievementUnlocks?: boolean;
         challengeProgress?: boolean;
         challengeReminders?: boolean;
+        friendRequests?: boolean;
+        friendAccepted?: boolean;
+        achievementUnlocked?: boolean;
       } = {};
 
-      if (typeof updates.challengeInvites === 'boolean') {
-        validatedUpdates.challengeInvites = updates.challengeInvites;
-      }
-      if (typeof updates.achievementUnlocks === 'boolean') {
-        validatedUpdates.achievementUnlocks = updates.achievementUnlocks;
-      }
-      if (typeof updates.challengeProgress === 'boolean') {
-        validatedUpdates.challengeProgress = updates.challengeProgress;
-      }
-      if (typeof updates.challengeReminders === 'boolean') {
-        validatedUpdates.challengeReminders = updates.challengeReminders;
+      const boolFields = [
+        'challengeInvites',
+        'challengeProgress',
+        'challengeReminders',
+        'friendRequests',
+        'friendAccepted',
+        'achievementUnlocked',
+      ] as const;
+      for (const field of boolFields) {
+        if (typeof updates[field] === 'boolean') {
+          validatedUpdates[field] = updates[field];
+        }
       }
 
       const preferences = await this.notificationsService.updatePreferences(

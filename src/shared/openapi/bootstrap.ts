@@ -1,0 +1,13 @@
+import '@modules/auth/auth.openapi.js';
+import '@modules/activities/activities.openapi.js';
+import '@modules/stats/stats.openapi.js';
+import '@modules/achievements/achievements.openapi.js';
+import '@modules/challenges/challenge.openapi.js';
+import '@modules/friends/friends.openapi.js';
+import '@modules/users/users.openapi.js';
+import '@modules/feed/feed.openapi.js';
+import '@modules/notifications/notifications.openapi.js';
+import '@modules/personal-records/personal-records.openapi.js';
+import '@modules/webhooks/webhooks.openapi.js';
+import '@modules/admin-quota/admin-quota.openapi.js';
+import './system.openapi.js';
