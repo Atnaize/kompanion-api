@@ -14,6 +14,16 @@ const envSchema = z.object({
   VAPID_PUBLIC_KEY: z.string().min(1, 'VAPID_PUBLIC_KEY is required'),
   VAPID_PRIVATE_KEY: z.string().min(1, 'VAPID_PRIVATE_KEY is required'),
   VAPID_SUBJECT: z.string().min(1, 'VAPID_SUBJECT is required (mailto:email or https://domain)'),
+
+  // Personal-records quota knobs. Strava allows 200 req / 15min and 2000 req /
+  // day per app. Webhook fetches + activity-list syncs share the same budget,
+  // so we keep ~500/day in reserve and let PR backfill use the remaining 1500.
+  PR_DAILY_USER_CAP: z.coerce.number().int().positive().default(100),
+  PR_DAILY_APP_BUDGET: z.coerce.number().int().positive().default(1500),
+  // Delay between per-activity Strava calls during PR backfill. 500ms ≈ 120
+  // req/min — Strava's 15-min window (200 req) bites first, so this is more
+  // politeness than throttle.
+  PR_PROCESSING_DELAY_MS: z.coerce.number().int().min(0).default(500),
 });
 
 const parseEnv = (): z.infer<typeof envSchema> => {
@@ -50,5 +60,10 @@ export const config = {
     publicKey: env.VAPID_PUBLIC_KEY,
     privateKey: env.VAPID_PRIVATE_KEY,
     subject: env.VAPID_SUBJECT,
+  },
+  personalRecords: {
+    dailyUserCap: env.PR_DAILY_USER_CAP,
+    dailyAppBudget: env.PR_DAILY_APP_BUDGET,
+    processingDelayMs: env.PR_PROCESSING_DELAY_MS,
   },
 } as const;

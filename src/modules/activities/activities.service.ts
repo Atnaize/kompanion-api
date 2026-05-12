@@ -1,11 +1,6 @@
 import axios from 'axios';
 import { config } from '@config/env.js';
-import {
-  parseRateLimitHeaders,
-  prisma,
-  StravaRateLimitError,
-  throwIfRateLimited,
-} from '@shared/utils/index.js';
+import { parseRateLimitHeaders, prisma, throwIfRateLimited } from '@shared/utils/index.js';
 import { AuthService } from '../auth/auth.service.js';
 import { ChallengeService } from '../challenges/challenge.service.js';
 import { PersonalRecordsService } from '../personal-records/personal-records.service.js';
@@ -22,10 +17,6 @@ import type {
 } from '@shared/types/index.js';
 import { AppError } from '@shared/middleware/index.js';
 import { HttpStatus } from '@shared/types/index.js';
-
-// Pause between per-activity Strava calls during PR processing.
-// 5s → 12 req/min, safely under Strava's 200 req / 15 min limit.
-const PR_PROCESSING_DELAY_MS = 500;
 
 // Stable, positive 32-bit-ish int hash of a string. Used as a React-key
 // fallback when Strava returns kudoers without athlete ids.
@@ -71,6 +62,8 @@ export class ActivitiesService {
           params,
         }
       );
+
+      await this.personalRecordsService.recordUsage(user.id, 'activity_sync');
 
       const usage = parseRateLimitHeaders(response.headers);
       console.info(
@@ -172,8 +165,8 @@ export class ActivitiesService {
     // Sync new activities to active challenges
     const challengeSync = await this.challengeService.syncActiveChallenges(user.id);
 
-    // Extract personal records for runs that don't have them yet
-    await this.processPersonalRecords(user);
+    // PR detail processing is intentionally not done here — see
+    // `PersonalRecordsService.processBacklogWithProgress`.
 
     return {
       synced: newActivities.length,
@@ -299,15 +292,10 @@ export class ActivitiesService {
     // Sync new activities to active challenges
     const challengeSync = await this.challengeService.syncActiveChallenges(user.id);
 
-    // Extract personal records for runs that don't have them yet
-    await this.processPersonalRecords(user, (current, total) => {
-      onProgress({
-        type: 'processing',
-        current,
-        total,
-        message: `Processing personal records... ${current}/${total}`,
-      });
-    });
+    // PR detail processing is intentionally NOT done here — see
+    // `PersonalRecordsService.processBacklogWithProgress`, which the
+    // /personal-records page invokes via its own SSE stream. Keeps the main
+    // sync fast and bounded.
 
     return {
       synced: newActivities.length,
@@ -316,50 +304,6 @@ export class ActivitiesService {
       challengesSynced: challengeSync.synced,
       challengeActivitiesAdded: challengeSync.activitiesAdded,
     };
-  }
-
-  /**
-   * Fetch Strava best_efforts for runs that haven't been processed yet and
-   * persist them as PersonalRecord rows. Resumable — if interrupted, the next
-   * sync picks up remaining activities via `getUnprocessedRunActivityIds`.
-   * Rate-limited to stay under Strava's 200 req / 15 min.
-   */
-  private async processPersonalRecords(
-    user: User,
-    onProgress?: (current: number, total: number) => void
-  ): Promise<void> {
-    const todo = await this.personalRecordsService.getUnprocessedRunActivityIds(user.id);
-
-    if (todo.length === 0) {
-      return;
-    }
-
-    console.info(`[PR] Processing ${todo.length} run(s) for personal records`);
-
-    for (let i = 0; i < todo.length; i++) {
-      try {
-        await this.personalRecordsService.processActivity(todo[i], user.id, user);
-      } catch (error) {
-        if (error instanceof StravaRateLimitError) {
-          console.warn(
-            `[PR] Rate limit reached after ${i} activities — stopping. ${error.message} Remaining ${todo.length - i} will resume on next sync.`
-          );
-          return;
-        }
-        console.error(
-          `[PR] Error processing activity ${todo[i]}:`,
-          error instanceof Error ? error.message : error
-        );
-      }
-
-      onProgress?.(i + 1, todo.length);
-
-      if (i < todo.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, PR_PROCESSING_DELAY_MS));
-      }
-    }
-
-    console.info(`[PR] Finished processing ${todo.length} run(s)`);
   }
 
   async getUserActivities(userId: number): Promise<StravaActivity[]> {
@@ -539,9 +483,7 @@ export class ActivitiesService {
       return cached.map((k) => this.kudoerToStrava(k));
     }
 
-    console.info(
-      `[Kudos] Cache stale (cached=${cached.length}, expected=${expected}); refetching`
-    );
+    console.info(`[Kudos] Cache stale (cached=${cached.length}, expected=${expected}); refetching`);
     const fresh = await this.fetchKudoersFromStrava(activityId, user);
     if (fresh === null) return cached.map((k) => this.kudoerToStrava(k));
 
@@ -1101,15 +1043,15 @@ export class ActivitiesService {
   }
 
   /**
-   * After inserting/updating an activity, recompute that user's challenge
-   * progress and personal records. Wraps the existing batch helpers.
+   * After inserting/updating an activity (e.g. from a webhook), recompute
+   * challenge progress. PR enrichment is handled separately by the webhook
+   * handler so a budget-exhausted PR fetch can't fail the rest of the event.
    */
-  async syncChallengesAndPRs(user: User): Promise<{
+  async syncChallengesForUser(user: User): Promise<{
     challengesSynced: number;
     challengeActivitiesAdded: number;
   }> {
     const challengeSync = await this.challengeService.syncActiveChallenges(user.id);
-    await this.processPersonalRecords(user);
     return {
       challengesSynced: challengeSync.synced,
       challengeActivitiesAdded: challengeSync.activitiesAdded,

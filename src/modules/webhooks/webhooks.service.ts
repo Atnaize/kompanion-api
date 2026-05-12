@@ -5,6 +5,7 @@ import { AppError } from '@shared/middleware/index.js';
 import { HttpStatus } from '@shared/types/index.js';
 import { ActivitiesService } from '../activities/activities.service.js';
 import { AuthService } from '../auth/auth.service.js';
+import { PersonalRecordsService } from '../personal-records/personal-records.service.js';
 import type {
   ProcessingLogEntry,
   StravaSubscriptionApiResponse,
@@ -24,6 +25,7 @@ const DEDUP_WINDOW_MS = 5 * 60 * 1000;
 export class WebhooksService {
   private activitiesService = new ActivitiesService();
   private authService = new AuthService();
+  private personalRecordsService = new PersonalRecordsService();
 
   // ─── Subscription lifecycle ────────────────────────────────────────────────
 
@@ -260,12 +262,55 @@ export class WebhooksService {
       await this.appendLog(eventId, 'info', 'Upserted activity into DB');
 
       await this.appendLog(eventId, 'info', 'Syncing active challenges');
-      const result = await this.activitiesService.syncChallengesAndPRs(user);
+      const result = await this.activitiesService.syncChallengesForUser(user);
       await this.appendLog(
         eventId,
         'info',
         `Challenges: synced=${result.challengesSynced} added=${result.challengeActivitiesAdded}`
       );
+
+      // PR enrichment: one extra Strava call for /activities/{id}.best_efforts.
+      // Eligibility mirrors getUnprocessedRunActivityIds. Failure here is a
+      // soft fault — we don't want a 429 or budget-exhaustion to fail the
+      // whole webhook event, so the catch logs a warning and returns.
+      try {
+        const activity = await prisma.activity.findUnique({
+          where: { id: BigInt(objectId) },
+          select: { type: true, manual: true, trainer: true, distance: true },
+        });
+        if (
+          activity &&
+          activity.type === 'Run' &&
+          !activity.manual &&
+          !activity.trainer &&
+          activity.distance >= 400
+        ) {
+          const budget = await this.personalRecordsService.checkBudget(user.id, 'webhook_fetch');
+          if (budget.paused) {
+            await this.appendLog(
+              eventId,
+              'warn',
+              `PR enrichment skipped: ${budget.reason} — ${budget.message}`
+            );
+          } else {
+            const upserted = await this.personalRecordsService.processActivity(
+              BigInt(objectId),
+              user.id,
+              user,
+              'webhook_fetch'
+            );
+            await this.appendLog(eventId, 'info', `PR enrichment: ${upserted} band(s) recorded`);
+          }
+        } else {
+          await this.appendLog(eventId, 'info', 'PR enrichment skipped: not a PR-eligible run');
+        }
+      } catch (error) {
+        await this.appendLog(
+          eventId,
+          'warn',
+          `PR enrichment failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
       return;
     }
 

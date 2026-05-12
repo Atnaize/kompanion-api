@@ -40,6 +40,9 @@ model User {
   pushSubscriptions     PushSubscription[]
   notificationPreferences NotificationPreference?
   personalRecords       PersonalRecord[]
+  stravaApiUsage        StravaApiUsage[]
+  stravaApiGrantsReceived StravaApiGrant[] @relation("GrantRecipient")
+  stravaApiGrantsIssued   StravaApiGrant[] @relation("GrantIssuer")
 
   @@index([stravaId])
   @@map("users")
@@ -75,6 +78,12 @@ model Activity {
   timezone            String
   manual              Boolean  @default(false)
   trainer             Boolean  @default(false)
+  // Set the first time we successfully fetch /activities/{id}.best_efforts
+  // from Strava. NULL = never attempted, so the activity is part of the PR
+  // backfill queue. Decoupled from PersonalRecord rows because some runs have
+  // no best_efforts that match our tracked bands — we still want to consider
+  // them "done" instead of refetching on every visit.
+  bestEffortsFetchedAt DateTime?
   createdAt           DateTime @default(now())
 
   // Relations
@@ -464,4 +473,48 @@ model WebhookEvent {
   @@index([receivedAt])
   @@index([objectType, objectId, aspectType, eventTime]) // Idempotency lookup
   @@map("webhook_events")
+}
+
+// Daily counter of Strava API calls per user per kind. The app-wide total
+// is computed via SUM aggregate over the same (date, kind). One row per
+// (userId, date, kind), atomically incremented AFTER each successful call.
+//
+// kinds:
+//   'pr_fetch'       — historical PR backfill from /personal-records page
+//   'webhook_fetch'  — single fetch triggered by an activity:create webhook
+//   'activity_sync'  — paginated /athlete/activities list during sync
+model StravaApiUsage {
+  id      Int      @id @default(autoincrement())
+  userId  Int
+  date    DateTime @db.Date
+  kind    String
+  count   Int      @default(0)
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date, kind])
+  @@index([date, kind])
+  @@map("strava_api_usage")
+}
+
+// Admin-issued bonus quota for a specific user. Effective per-user daily cap =
+// base config cap + sum(amount) for all active grants matching (userId, kind).
+// validUntil makes grants self-expire so we don't have to clean up rows.
+model StravaApiGrant {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  kind       String
+  amount     Int
+  validFrom  DateTime @default(now())
+  validUntil DateTime
+  grantedBy  Int
+  note       String?
+  createdAt  DateTime @default(now())
+
+  user  User @relation("GrantRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  admin User @relation("GrantIssuer", fields: [grantedBy], references: [id])
+
+  @@index([userId, kind, validUntil])
+  @@index([validUntil])
+  @@map("strava_api_grants")
 }

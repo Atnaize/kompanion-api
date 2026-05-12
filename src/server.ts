@@ -11,6 +11,7 @@ import { friendsRoutes } from './modules/friends/index.js';
 import { notificationsRoutes } from './modules/notifications/index.js';
 import { personalRecordsRoutes } from './modules/personal-records/index.js';
 import { webhooksAdminRoutes, webhooksPublicRoutes } from './modules/webhooks/index.js';
+import { adminQuotaRoutes } from './modules/admin-quota/index.js';
 
 const app = express();
 
@@ -64,6 +65,7 @@ app.use('/api/notifications', notificationsRoutes);
 app.use('/api/personal-records', personalRecordsRoutes);
 app.use('/api/webhooks', webhooksPublicRoutes);
 app.use('/api/admin/webhooks', webhooksAdminRoutes);
+app.use('/api/admin/quota', adminQuotaRoutes);
 
 app.use(errorHandler);
 
