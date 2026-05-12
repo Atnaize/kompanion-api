@@ -1,6 +1,12 @@
 import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { AdminQuotaService } from './admin-quota.service.js';
+import { ActivitiesService } from '../activities/activities.service.js';
+import { AuthService } from '../auth/auth.service.js';
+import {
+  PersonalRecordsService,
+  type BacklogProgressEvent,
+} from '../personal-records/personal-records.service.js';
 import { HttpStatus } from '@shared/types/index.js';
 
 const grantSchema = z.object({
@@ -17,6 +23,9 @@ const grantSchema = z.object({
 
 export class AdminQuotaController {
   private service = new AdminQuotaService();
+  private authService = new AuthService();
+  private activitiesService = new ActivitiesService();
+  private personalRecordsService = new PersonalRecordsService();
 
   overview = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -100,6 +109,123 @@ export class AdminQuotaController {
         return;
       }
       res.json({ success: true, data: await this.service.listGrantsForUser(userId) });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  syncUserActivitiesStream = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const targetUserId = parseInt(req.params.userId ?? '', 10);
+      if (Number.isNaN(targetUserId) || targetUserId <= 0) {
+        res.status(HttpStatus.BAD_REQUEST).json({ success: false, error: 'Invalid userId' });
+        return;
+      }
+
+      const targetUser = await this.authService.getUserById(targetUserId);
+      if (!targetUser) {
+        res.status(HttpStatus.NOT_FOUND).json({ success: false, error: 'User not found' });
+        return;
+      }
+
+      console.info(
+        `[Admin Sync] Admin ${req.userId} triggering activity sync for user ${targetUserId}`
+      );
+
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders();
+
+      const sendEvent = (data: {
+        type: 'fetching' | 'saving' | 'processing' | 'complete' | 'error';
+        current?: number;
+        total?: number;
+        message?: string;
+        challengesSynced?: number;
+        challengeActivitiesAdded?: number;
+      }): void => {
+        res.write(`data: ${JSON.stringify(data)}\n\n`);
+      };
+
+      try {
+        const result = await this.activitiesService.syncActivitiesWithProgress(
+          targetUser,
+          sendEvent
+        );
+        sendEvent({
+          type: 'complete',
+          total: result.synced,
+          message: `Synced ${result.synced} activities`,
+          challengesSynced: result.challengesSynced,
+          challengeActivitiesAdded: result.challengeActivitiesAdded,
+        });
+        res.end();
+      } catch (error) {
+        console.error(
+          `[Admin Sync] Error syncing activities for user ${targetUserId}:`,
+          error instanceof Error ? error.message : error
+        );
+        sendEvent({
+          type: 'error',
+          message: error instanceof Error ? error.message : 'Sync failed',
+        });
+        res.end();
+      }
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  processUserBacklogStream = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const targetUserId = parseInt(req.params.userId ?? '', 10);
+      if (Number.isNaN(targetUserId) || targetUserId <= 0) {
+        res.status(HttpStatus.BAD_REQUEST).json({ success: false, error: 'Invalid userId' });
+        return;
+      }
+
+      const targetUser = await this.authService.getUserById(targetUserId);
+      if (!targetUser) {
+        res.status(HttpStatus.NOT_FOUND).json({ success: false, error: 'User not found' });
+        return;
+      }
+
+      console.info(
+        `[Admin Backlog] Admin ${req.userId} processing PR backlog for user ${targetUserId}`
+      );
+
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders();
+
+      const send = (event: BacklogProgressEvent): void => {
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      };
+
+      try {
+        await this.personalRecordsService.processBacklogWithProgress(targetUser, send);
+        res.end();
+      } catch (error) {
+        console.error(
+          `[Admin Backlog] Error processing backlog for user ${targetUserId}:`,
+          error instanceof Error ? error.message : error
+        );
+        send({
+          type: 'error',
+          message: error instanceof Error ? error.message : 'Processing failed',
+        });
+        res.end();
+      }
     } catch (error) {
       next(error);
     }

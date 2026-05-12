@@ -2,7 +2,15 @@ import type { NextFunction, Request, Response } from 'express';
 import { config } from '@config/env.js';
 import { HttpStatus } from '@shared/types/index.js';
 import { WebhooksService } from './webhooks.service.js';
+import { webhooksQueue } from './webhooks.queue.js';
 import type { StravaWebhookPayload, WebhookEventStatus } from './webhooks.types.js';
+
+// Sweep horizons. `processing` rows older than this are assumed to belong to
+// a dead invocation (Vercel timeout or crash mid-dispatch) and get reset to
+// `pending` so the worker can pick them up again. `pending` rows older than
+// this never got their QStash publish acked — likely a publish-time failure.
+const STUCK_PROCESSING_MS = 5 * 60 * 1000;
+const STUCK_PENDING_MS = 2 * 60 * 1000;
 
 const sanitizeStatus = (raw: unknown): WebhookEventStatus | undefined => {
   const allowed: WebhookEventStatus[] = ['pending', 'processing', 'processed', 'failed', 'skipped'];
@@ -79,9 +87,9 @@ export class WebhooksController {
 
   /**
    * POST /api/webhooks/strava
-   * Persist the event then respond 200 within Strava's 2-second budget. Then
-   * process synchronously — Vercel keeps the function alive until the handler
-   * returns, but the response has already gone out.
+   * Persist the event, publish a QStash message, and respond 200 — all in
+   * under Strava's 2-second budget. The actual dispatch happens in a separate
+   * invocation triggered by QStava POSTing back to /api/webhooks/process.
    */
   receive = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -105,18 +113,88 @@ export class WebhooksController {
 
       const { event, isDuplicate } = await this.service.recordEvent(payload, 'strava');
 
-      // Acknowledge first — must happen within 2s.
-      res.status(HttpStatus.OK).json({ accepted: true, eventId: event.id, isDuplicate });
-
       if (!isDuplicate) {
-        // Continue processing on the same invocation. Awaiting ensures Vercel
-        // keeps the function alive until processing finishes.
-        await this.service.processEventSafely(event.id);
+        try {
+          await webhooksQueue.publish(event.id);
+        } catch (publishErr) {
+          // Don't fail the Strava ack — the row is already persisted, so the
+          // periodic sweep will re-publish it. Log loudly so we notice if
+          // QStash is down.
+          console.error('[Webhooks] QStash publish failed; sweep will retry', {
+            eventId: event.id,
+            error: publishErr instanceof Error ? publishErr.message : String(publishErr),
+          });
+        }
       }
+
+      res.status(HttpStatus.OK).json({ accepted: true, eventId: event.id, isDuplicate });
     } catch (error) {
-      // We may already have sent the response; only forward if not.
       if (!res.headersSent) next(error);
       else console.error('[Webhooks] Error after response sent:', error);
+    }
+  };
+
+  /**
+   * POST /api/webhooks/process
+   * QStash-only entrypoint. Verifies the Upstash signature, claims the row
+   * (atomic pending→processing transition), and dispatches. Returning 5xx
+   * tells QStash to retry; 2xx (including no-op claims) drains the message.
+   */
+  process = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const signature = req.header('upstash-signature');
+      const rawBody = req.rawBody?.toString('utf8');
+      if (!signature || rawBody === undefined) {
+        console.warn('[Webhooks] /process called without signature or raw body');
+        res.status(HttpStatus.UNAUTHORIZED).json({ success: false, error: 'Missing signature' });
+        return;
+      }
+
+      try {
+        await webhooksQueue.verify({
+          signature,
+          body: rawBody,
+          url: config.qstash.workerUrl,
+        });
+      } catch (verifyErr) {
+        console.warn('[Webhooks] QStash signature verification failed', {
+          error: verifyErr instanceof Error ? verifyErr.message : String(verifyErr),
+        });
+        res.status(HttpStatus.UNAUTHORIZED).json({ success: false, error: 'Invalid signature' });
+        return;
+      }
+
+      const body = req.body as { eventId?: unknown };
+      if (typeof body?.eventId !== 'string') {
+        // 200 — don't make QStash retry a structurally broken message.
+        res.status(HttpStatus.OK).json({ accepted: false, reason: 'missing eventId' });
+        return;
+      }
+
+      const claimed = await this.service.claimEventForProcessing(body.eventId);
+      if (!claimed) {
+        // Already processed, already running elsewhere, or unknown id — drain.
+        res.status(HttpStatus.OK).json({ accepted: false, reason: 'not claimable' });
+        return;
+      }
+
+      try {
+        await this.service.dispatchClaimedEvent(body.eventId);
+        res.status(HttpStatus.OK).json({ accepted: true });
+      } catch (dispatchErr) {
+        // dispatchClaimedEvent already wrote `failed` + error onto the row.
+        // Respond 500 so QStash retries with exponential backoff.
+        console.error('[Webhooks] Dispatch failed; QStash will retry', {
+          eventId: body.eventId,
+          error: dispatchErr instanceof Error ? dispatchErr.message : String(dispatchErr),
+        });
+        res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+          success: false,
+          error: dispatchErr instanceof Error ? dispatchErr.message : 'Dispatch failed',
+        });
+      }
+    } catch (error) {
+      next(error);
     }
   };
 
@@ -289,6 +367,44 @@ export class WebhooksController {
       await this.service.processEventSafely(event.id);
       const updated = await this.service.getEvent(event.id);
       res.json({ success: true, data: serialize(updated) });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * POST /api/admin/webhooks/sweep
+   * Reset rows that look abandoned (processing > 5min, pending > 2min) back
+   * to `pending` and re-publish each one. Safety net for QStash outages and
+   * for invocations that died mid-dispatch.
+   */
+  sweep = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const now = Date.now();
+      const stuck = await this.service.findAndResetStuck({
+        processingOlderThan: new Date(now - STUCK_PROCESSING_MS),
+        pendingOlderThan: new Date(now - STUCK_PENDING_MS),
+      });
+
+      const republished: string[] = [];
+      const failed: { id: string; error: string }[] = [];
+      for (const id of stuck) {
+        try {
+          await webhooksQueue.publish(id);
+          republished.push(id);
+        } catch (err) {
+          failed.push({ id, error: err instanceof Error ? err.message : String(err) });
+        }
+      }
+
+      res.json({
+        success: true,
+        data: {
+          resetCount: stuck.length,
+          republishedCount: republished.length,
+          failed,
+        },
+      });
     } catch (error) {
       next(error);
     }

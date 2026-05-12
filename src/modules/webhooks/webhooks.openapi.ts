@@ -35,7 +35,7 @@ registry.registerPath({
   tags: ['Webhooks'],
   summary: 'Strava webhook event receiver',
   description:
-    'Strava POSTs activity / athlete events here. Public — no auth, validated by `hub.verify_token`.',
+    'Strava POSTs activity / athlete events here. Public — no auth, validated by `hub.verify_token`. The handler persists the event, publishes a QStash message, and acks in <500ms.',
   request: {
     body: {
       content: {
@@ -55,6 +55,29 @@ registry.registerPath({
   },
   responses: {
     200: { description: 'OK' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/webhooks/process',
+  tags: ['Webhooks'],
+  summary: 'QStash worker callback (internal)',
+  description:
+    'QStash POSTs here with `{ eventId }`. Validated via the `upstash-signature` header. Not for manual use.',
+  request: {
+    body: {
+      content: {
+        'application/json': {
+          schema: z.object({ eventId: z.string() }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: { description: 'OK — dispatched or no-op' },
+    401: { description: 'Missing or invalid Upstash signature' },
+    500: { description: 'Dispatch failed; QStash should retry' },
   },
 });
 
@@ -169,6 +192,23 @@ registry.registerPath({
   },
   responses: {
     200: { description: 'OK', content: { 'application/json': { schema: successWithMessage() } } },
+    ...commonErrors,
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/admin/webhooks/sweep',
+  tags: adminTag,
+  summary: '[Admin] Reset abandoned webhook rows and re-publish',
+  description:
+    'Finds rows stuck in `processing` (>5min) or `pending` (>2min), resets them to `pending`, and re-publishes via QStash. Safety net for QStash outages and Vercel mid-dispatch deaths.',
+  security: auth,
+  responses: {
+    200: {
+      description: 'OK',
+      content: { 'application/json': { schema: successOf(z.record(z.unknown())) } },
+    },
     ...commonErrors,
   },
 });

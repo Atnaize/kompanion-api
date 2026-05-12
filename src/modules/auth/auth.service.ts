@@ -121,6 +121,14 @@ export class AuthService {
     return dbUser ? this.toUserModel(dbUser) : null;
   }
 
+  async getUserById(userId: number): Promise<User | null> {
+    const dbUser = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    return dbUser ? this.toUserModel(dbUser) : null;
+  }
+
   /**
    * Ensures the user has a valid Strava access token.
    * Refreshes the token if it's about to expire (within 5 minutes).

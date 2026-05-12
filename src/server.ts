@@ -44,7 +44,16 @@ app.use(
   })
 );
 
-app.use(express.json());
+// Capture the raw request body so QStash signature verification can hash it.
+// The verify callback is cheap and only retains a Buffer reference for the
+// duration of the request.
+app.use(
+  express.json({
+    verify: (req, _res, buf) => {
+      (req as express.Request).rawBody = buf;
+    },
+  })
+);
 app.use(express.urlencoded({ extended: true }));
 
 app.get('/openapi.json', (_req, res) => {

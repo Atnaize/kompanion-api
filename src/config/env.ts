@@ -24,6 +24,15 @@ const envSchema = z.object({
   // req/min — Strava's 15-min window (200 req) bites first, so this is more
   // politeness than throttle.
   PR_PROCESSING_DELAY_MS: z.coerce.number().int().min(0).default(500),
+
+  // QStash (Upstash) decouples webhook ack from processing. The receive
+  // handler publishes a message and returns 200 instantly; QStash POSTs the
+  // worker URL with retries and DLQ. All four are required — we fail loudly
+  // at startup rather than silently fall back to synchronous processing.
+  QSTASH_TOKEN: z.string().min(1, 'QSTASH_TOKEN is required'),
+  QSTASH_CURRENT_SIGNING_KEY: z.string().min(1, 'QSTASH_CURRENT_SIGNING_KEY is required'),
+  QSTASH_NEXT_SIGNING_KEY: z.string().min(1, 'QSTASH_NEXT_SIGNING_KEY is required'),
+  WEBHOOK_WORKER_URL: z.string().url('WEBHOOK_WORKER_URL must be an absolute URL'),
 });
 
 const parseEnv = (): z.infer<typeof envSchema> => {
@@ -65,5 +74,11 @@ export const config = {
     dailyUserCap: env.PR_DAILY_USER_CAP,
     dailyAppBudget: env.PR_DAILY_APP_BUDGET,
     processingDelayMs: env.PR_PROCESSING_DELAY_MS,
+  },
+  qstash: {
+    token: env.QSTASH_TOKEN,
+    currentSigningKey: env.QSTASH_CURRENT_SIGNING_KEY,
+    nextSigningKey: env.QSTASH_NEXT_SIGNING_KEY,
+    workerUrl: env.WEBHOOK_WORKER_URL,
   },
 } as const;

@@ -195,6 +195,99 @@ export class WebhooksService {
   // ─── Event processing ──────────────────────────────────────────────────────
 
   /**
+   * Atomically transition a `pending` row to `processing` and bump attempts.
+   * Returns true iff this caller won the claim — used by the QStash worker
+   * so two concurrent deliveries can't both process the same event.
+   *
+   * If the row is already `processing`/`processed`/`failed`/`skipped`, or
+   * doesn't exist, returns false and the worker should drain the message.
+   */
+  async claimEventForProcessing(eventId: string): Promise<boolean> {
+    const result = await prisma.webhookEvent.updateMany({
+      where: { id: eventId, status: 'pending' },
+      data: { status: 'processing', attempts: { increment: 1 } },
+    });
+    if (result.count === 0) return false;
+    await this.appendLog(eventId, 'info', 'Processing started (claimed from queue)');
+    return true;
+  }
+
+  /**
+   * Run dispatch() on a row that was already claimed by claimEventForProcessing.
+   * On success: status → processed. On failure: status → failed and rethrow
+   * so the worker can return 5xx and QStash can retry with backoff.
+   *
+   * Final status writes are conditional on `status: 'processing'` so that a
+   * concurrent sweep+re-publish can't have us overwriting a fresh attempt.
+   */
+  async dispatchClaimedEvent(eventId: string): Promise<void> {
+    const event = await prisma.webhookEvent.findUnique({ where: { id: eventId } });
+    if (!event) {
+      console.error('[Webhooks] dispatchClaimedEvent: row vanished', { eventId });
+      return;
+    }
+
+    try {
+      await this.dispatch(event, eventId);
+      await prisma.webhookEvent.updateMany({
+        where: { id: eventId, status: 'processing' },
+        data: { status: 'processed', processedAt: new Date(), error: null },
+      });
+      await this.appendLog(eventId, 'info', '✅ Processed successfully');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack : undefined;
+      console.error('[Webhooks] dispatchClaimedEvent failed', { eventId, message, stack });
+      try {
+        await this.appendLog(eventId, 'error', `Failed: ${message}`);
+        if (stack) await this.appendLog(eventId, 'error', stack);
+        await prisma.webhookEvent.updateMany({
+          where: { id: eventId, status: 'processing' },
+          data: { status: 'failed', error: message },
+        });
+      } catch (logErr) {
+        console.error('[Webhooks] Failed to record failure on event', logErr);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Sweep abandoned rows back to `pending` and return the IDs that were reset
+   * so the caller can re-publish them. A `processing` row older than
+   * `processingOlderThan` belongs to a dead invocation; a `pending` row older
+   * than `pendingOlderThan` never got its QStash publish acked.
+   *
+   * We use `receivedAt` as the staleness proxy — there's no per-status
+   * timestamp on the row and adding one would require a migration. The risk
+   * of a sweep racing a still-alive worker is bounded by `dispatchClaimedEvent`
+   * writing only when `status: 'processing'`.
+   */
+  async findAndResetStuck(opts: {
+    processingOlderThan: Date;
+    pendingOlderThan: Date;
+  }): Promise<string[]> {
+    const stuck = await prisma.webhookEvent.findMany({
+      where: {
+        OR: [
+          { status: 'processing', receivedAt: { lt: opts.processingOlderThan } },
+          { status: 'pending', receivedAt: { lt: opts.pendingOlderThan } },
+        ],
+      },
+      select: { id: true },
+      take: 50,
+    });
+    if (stuck.length === 0) return [];
+
+    const ids = stuck.map((r) => r.id);
+    await prisma.webhookEvent.updateMany({
+      where: { id: { in: ids } },
+      data: { status: 'pending', error: null },
+    });
+    return ids;
+  }
+
+  /**
    * Dispatch the event to the right handler. Always resolves — never throws —
    * so that a failure here can't break the response path. Errors are captured
    * onto the event row.

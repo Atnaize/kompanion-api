@@ -118,3 +118,45 @@ registry.registerPath({
     ...commonErrors,
   },
 });
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/admin/quota/users/{userId}/sync-activities/stream',
+  tags,
+  summary: '[Admin] Sync activities on behalf of a user (SSE)',
+  description:
+    'Triggers a Strava activity sync for the target user using their stored OAuth tokens. ' +
+    'Streams progress as Server-Sent Events. Quota usage is charged to the target user.',
+  security: auth,
+  request: {
+    params: z.object({ userId: z.string().openapi({ param: { name: 'userId', in: 'path' } }) }),
+  },
+  responses: {
+    200: {
+      description: 'SSE stream of sync progress events',
+      content: { 'text/event-stream': { schema: z.string() } },
+    },
+    ...commonErrors,
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/admin/quota/users/{userId}/process-backlog/stream',
+  tags,
+  summary: '[Admin] Process personal-records backlog on behalf of a user (SSE)',
+  description:
+    'Drains the unprocessed PR run backlog for the target user. ' +
+    'Streams progress as Server-Sent Events. Stops on budget exhaustion or Strava rate limit.',
+  security: auth,
+  request: {
+    params: z.object({ userId: z.string().openapi({ param: { name: 'userId', in: 'path' } }) }),
+  },
+  responses: {
+    200: {
+      description: 'SSE stream of backlog progress events',
+      content: { 'text/event-stream': { schema: z.string() } },
+    },
+    ...commonErrors,
+  },
+});
