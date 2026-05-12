@@ -6,14 +6,18 @@ export class StatsService {
   private achievementProgressService = new AchievementProgressService();
 
   /**
-   * Calculate and store user stats from ALL activities
-   * Returns fresh calculated stats (no filtering by achievementStartDate)
+   * Calculate user stats from activities.
+   *
+   * When `activityType` is omitted we treat the result as the user's
+   * canonical totals and persist them to UserStats/ActivityTypeStats. When a
+   * filter is passed we just return the computed stats — persisting filtered
+   * totals would corrupt the canonical "all activities" record.
    */
-  async calculateUserStats(userId: number): Promise<UserStats> {
-    // Get ALL activities for the user (no filtering by achievementStartDate)
+  async calculateUserStats(userId: number, activityType?: string): Promise<UserStats> {
     const activities = await prisma.activity.findMany({
       where: {
         userId,
+        ...(activityType ? { type: activityType } : {}),
       },
       orderBy: { startDate: 'asc' },
     });
@@ -54,53 +58,57 @@ export class StatsService {
 
     const longestStreak = Math.max(currentStreak, existingStats?.longestStreak || 0);
 
-    // Upsert user stats
-    await prisma.userStats.upsert({
-      where: { userId },
-      create: {
-        userId,
-        totalDistance: Math.round(totalDistance),
-        totalElevation: Math.round(totalElevation),
-        totalActivities,
-        totalTime,
-        currentStreak,
-        longestStreak,
-      },
-      update: {
-        totalDistance: Math.round(totalDistance),
-        totalElevation: Math.round(totalElevation),
-        totalActivities,
-        totalTime,
-        currentStreak,
-        longestStreak,
-      },
-    });
-
-    // Upsert activity type stats
-    const userStatsRecord = await prisma.userStats.findUniqueOrThrow({
-      where: { userId },
-    });
-
-    // Delete old activity type stats
-    await prisma.activityTypeStats.deleteMany({
-      where: { userStatsId: userStatsRecord.id },
-    });
-
-    // Create new activity type stats
-    for (const [activityType, stats] of Object.entries(byActivityType)) {
-      await prisma.activityTypeStats.create({
-        data: {
-          userStatsId: userStatsRecord.id,
-          activityType,
-          count: stats.count,
-          distance: Math.round(stats.distance),
-          elevation: Math.round(stats.elevation),
-          time: stats.time,
+    // Only persist the canonical totals when not filtering. Filtered results
+    // are computed on the fly and never written back.
+    if (!activityType) {
+      await prisma.userStats.upsert({
+        where: { userId },
+        create: {
+          userId,
+          totalDistance: Math.round(totalDistance),
+          totalElevation: Math.round(totalElevation),
+          totalActivities,
+          totalTime,
+          currentStreak,
+          longestStreak,
+        },
+        update: {
+          totalDistance: Math.round(totalDistance),
+          totalElevation: Math.round(totalElevation),
+          totalActivities,
+          totalTime,
+          currentStreak,
+          longestStreak,
         },
       });
+
+      const userStatsRecord = await prisma.userStats.findUniqueOrThrow({
+        where: { userId },
+      });
+
+      await prisma.activityTypeStats.deleteMany({
+        where: { userStatsId: userStatsRecord.id },
+      });
+
+      for (const [type, typeStats] of Object.entries(byActivityType)) {
+        await prisma.activityTypeStats.create({
+          data: {
+            userStatsId: userStatsRecord.id,
+            activityType: type,
+            count: typeStats.count,
+            distance: Math.round(typeStats.distance),
+            elevation: Math.round(typeStats.elevation),
+            time: typeStats.time,
+          },
+        });
+      }
+
+      // Update achievement progress (queries activities with
+      // achievementStartDate filter). Only relevant for the canonical totals.
+      await this.achievementProgressService.updateAllProgress(userId);
     }
 
-    const stats = {
+    return {
       userId,
       totalDistance: Math.round(totalDistance),
       totalElevation: Math.round(totalElevation),
@@ -110,11 +118,6 @@ export class StatsService {
       longestStreak,
       byActivityType,
     };
-
-    // Update achievement progress (queries activities with achievementStartDate filter)
-    await this.achievementProgressService.updateAllProgress(userId);
-
-    return stats;
   }
 
   /**
@@ -159,7 +162,8 @@ export class StatsService {
    */
   async calculateStatsForPeriod(
     userId: number,
-    period: 'week' | 'month' | 'year'
+    period: 'week' | 'month' | 'year',
+    activityType?: string
   ): Promise<UserStats> {
     const now = new Date();
     let startDate: Date;
@@ -193,6 +197,7 @@ export class StatsService {
           gte: startDate,
           lte: now,
         },
+        ...(activityType ? { type: activityType } : {}),
       },
       orderBy: { startDate: 'asc' },
     });
@@ -295,7 +300,8 @@ export class StatsService {
    */
   async comparePeriods(
     userId: number,
-    period: 'week' | 'month' | 'year'
+    period: 'week' | 'month' | 'year',
+    activityType?: string
   ): Promise<{
     current: {
       distance: number;
@@ -340,6 +346,8 @@ export class StatsService {
         break;
     }
 
+    const typeFilter = activityType ? { type: activityType } : {};
+
     // Get activities for current period
     const currentActivities = await prisma.activity.findMany({
       where: {
@@ -348,6 +356,7 @@ export class StatsService {
           gte: currentStart,
           lte: now,
         },
+        ...typeFilter,
       },
     });
 
@@ -359,6 +368,7 @@ export class StatsService {
           gte: previousStart,
           lt: previousEnd,
         },
+        ...typeFilter,
       },
     });
 
@@ -409,7 +419,8 @@ export class StatsService {
     currentStart: Date,
     currentEnd: Date,
     previousStart: Date,
-    previousEnd: Date
+    previousEnd: Date,
+    activityType?: string
   ): Promise<{
     current: {
       distance: number;
@@ -430,6 +441,8 @@ export class StatsService {
       count: number;
     };
   }> {
+    const typeFilter = activityType ? { type: activityType } : {};
+
     // Get activities for current period
     const currentActivities = await prisma.activity.findMany({
       where: {
@@ -438,6 +451,7 @@ export class StatsService {
           gte: currentStart,
           lte: currentEnd,
         },
+        ...typeFilter,
       },
     });
 
@@ -449,6 +463,7 @@ export class StatsService {
           gte: previousStart,
           lte: previousEnd,
         },
+        ...typeFilter,
       },
     });
 
@@ -496,7 +511,8 @@ export class StatsService {
    */
   async getHeatmapData(
     userId: number,
-    metric: 'count' | 'distance' = 'count'
+    metric: 'count' | 'distance' = 'count',
+    activityType?: string
   ): Promise<Array<{ date: string; value: number }>> {
     const now = new Date();
     const twelveMonthsAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
@@ -508,6 +524,7 @@ export class StatsService {
         startDateLocal: {
           gte: twelveMonthsAgo,
         },
+        ...(activityType ? { type: activityType } : {}),
       },
       orderBy: { startDateLocal: 'asc' },
     });
@@ -543,6 +560,7 @@ export class StatsService {
       metric: 'distance' | 'elevation' | 'count' | 'time';
       period: 'week' | 'month' | 'year' | 'all';
       groupBy: 'day' | 'week' | 'month';
+      activityType?: string;
     }
   ): Promise<Array<{ date: string; value: number }>> {
     const now = new Date();
@@ -571,6 +589,7 @@ export class StatsService {
         startDateLocal: {
           gte: startDate,
         },
+        ...(options.activityType ? { type: options.activityType } : {}),
       },
       orderBy: { startDateLocal: 'asc' },
     });

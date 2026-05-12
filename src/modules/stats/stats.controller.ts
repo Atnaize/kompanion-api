@@ -2,6 +2,17 @@ import type { Request, Response, NextFunction } from 'express';
 import { StatsService } from './stats.service.js';
 import { HttpStatus } from '@shared/types/index.js';
 
+// Strava activity types are PascalCase strings ("Run", "Ride", "Swim",
+// "WeightTraining", …). We accept the raw string from the query; the
+// service uses it as an equality filter on Activity.type. Empty / "all" is
+// treated as "no filter".
+const pluckType = (raw: unknown): string | undefined => {
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.toLowerCase() === 'all') return undefined;
+  return trimmed;
+};
+
 export class StatsController {
   private statsService = new StatsService();
 
@@ -16,6 +27,7 @@ export class StatsController {
       }
 
       const period = req.query.period as string | undefined;
+      const activityType = pluckType(req.query.activityType);
 
       // Validate period if provided
       if (period && !['week', 'month', 'year'].includes(period)) {
@@ -29,9 +41,10 @@ export class StatsController {
       const stats = period
         ? await this.statsService.calculateStatsForPeriod(
             req.userId,
-            period as 'week' | 'month' | 'year'
+            period as 'week' | 'month' | 'year',
+            activityType
           )
-        : await this.statsService.calculateUserStats(req.userId);
+        : await this.statsService.calculateUserStats(req.userId, activityType);
 
       res.json({
         success: true,
@@ -85,6 +98,7 @@ export class StatsController {
         metric: metric as 'distance' | 'elevation' | 'count' | 'time',
         period: period as 'week' | 'month' | 'year' | 'all',
         groupBy: groupBy as 'day' | 'week' | 'month',
+        activityType: pluckType(req.query.activityType),
       });
 
       res.json({
@@ -119,7 +133,8 @@ export class StatsController {
 
       const data = await this.statsService.comparePeriods(
         req.userId,
-        period as 'week' | 'month' | 'year'
+        period as 'week' | 'month' | 'year',
+        pluckType(req.query.activityType)
       );
 
       res.json({
@@ -154,7 +169,8 @@ export class StatsController {
 
       const data = await this.statsService.getHeatmapData(
         req.userId,
-        metric as 'count' | 'distance'
+        metric as 'count' | 'distance',
+        pluckType(req.query.activityType)
       );
 
       res.json({
@@ -213,7 +229,8 @@ export class StatsController {
         currentStartDate,
         currentEndDate,
         previousStartDate,
-        previousEndDate
+        previousEndDate,
+        pluckType(req.query.activityType)
       );
 
       res.json({

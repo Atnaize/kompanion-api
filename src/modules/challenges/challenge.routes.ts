@@ -15,9 +15,6 @@ router.get('/invitations', requireAuth, invitationController.getPendingInvitatio
 // Events (must come before /:id routes)
 router.get('/events', requireAuth, eventsController.getUserChallengeEvents);
 
-// Sync (must come before /:id routes)
-router.post('/sync', requireAuth, challengeController.syncActiveChallenges);
-
 // Unseen completed challenges (must come before /:id routes)
 router.get('/unseen-completed', requireAuth, challengeController.getUnseenCompleted);
 
