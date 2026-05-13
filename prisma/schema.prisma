@@ -6,7 +6,16 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
+  // Pooled connection (Neon PgBouncer) used by the app at runtime.
+  url       = env("DATABASE_URL")
+  // Direct, session-scoped connection used by `prisma migrate deploy`.
+  // PgBouncer's transaction-mode pooling breaks the advisory lock
+  // Prisma uses to coordinate migrations (Error P1002), so we need a
+  // non-pooled URL for the migrate step. In Vercel this is populated
+  // from Neon's auto-provisioned DB_DATABASE_URL_UNPOOLED inside
+  // prisma.config.ts before the schema is evaluated.
+  directUrl = env("DIRECT_URL")
 }
 
 // User model - Athletes using the app
