@@ -11,5 +11,6 @@ router.get('/preferences', requireAuth, controller.getPreferences);
 router.put('/preferences', requireAuth, controller.updatePreferences);
 router.get('/vapid-public-key', controller.getVapidPublicKey);
 router.post('/test', requireAuth, controller.sendTestNotification);
+router.post('/test-inbox', requireAuth, controller.testInbox);
 
 export default router;

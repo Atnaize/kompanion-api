@@ -9,6 +9,8 @@ const controller = new InboxController();
 router.get('/count', requireAuth, controller.unreadCount);
 router.post('/read-all', requireAuth, controller.markAllRead);
 router.post('/:id/read', requireAuth, controller.markRead);
+router.delete('/:id', requireAuth, controller.deleteOne);
+router.delete('/', requireAuth, controller.deleteAll);
 router.get('/', requireAuth, controller.list);
 
 export default router;

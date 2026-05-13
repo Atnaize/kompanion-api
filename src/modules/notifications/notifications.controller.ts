@@ -4,6 +4,16 @@ import { HttpStatus } from '@shared/types/index.js';
 import type { PushSubscription } from 'web-push';
 import { config } from '@config/env.js';
 import { prisma } from '@shared/utils/index.js';
+import { notificationEmitter, type NotificationPayload } from '../inbox/index.js';
+
+const TEST_INBOX_TYPES = [
+  'friend_request',
+  'friend_accepted',
+  'achievement_unlocked',
+  'challenge_invite',
+  'challenge_joined',
+] as const;
+type TestInboxType = (typeof TEST_INBOX_TYPES)[number];
 
 export class NotificationsController {
   private notificationsService = new NotificationsService();
@@ -197,7 +207,7 @@ export class NotificationsController {
         title: 'Test Notification',
         body: 'This is a test notification from Kompanion!',
         icon: '/pwa-192x192.svg',
-        badge: '/pwa-64x64.svg',
+        badge: '/notification-badge.svg',
         data: {
           type: 'test',
           timestamp: new Date().toISOString(),
@@ -216,4 +226,107 @@ export class NotificationsController {
       next(error);
     }
   };
+
+  /**
+   * POST /api/notifications/test-inbox
+   *
+   * Emits one inbox notification of the requested `type` to the current user
+   * via `notificationEmitter.record()`. That exercises the full pipeline:
+   *   - DB row created (drives the in-app inbox)
+   *   - Push fan-out to web-push, gated by NotificationPreference
+   *
+   * Used by the admin "Notifications" tab to test each notification type
+   * end-to-end. Actor is set to the current user so the row renders with an
+   * avatar (except for `achievement_unlocked`, which is system-driven).
+   */
+  testInbox = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.userId) {
+        res.status(HttpStatus.UNAUTHORIZED).json({ success: false, error: 'Not authenticated' });
+        return;
+      }
+      const userId = req.userId;
+      const { type } = req.body as { type?: unknown };
+      if (typeof type !== 'string' || !TEST_INBOX_TYPES.includes(type as TestInboxType)) {
+        res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          error: `type must be one of: ${TEST_INBOX_TYPES.join(', ')}`,
+        });
+        return;
+      }
+
+      const me = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { firstname: true, lastname: true },
+      });
+      const actorName = me ? `${me.firstname} ${me.lastname}` : 'Test User';
+
+      const { payload, actorId } = buildTestPayload(type as TestInboxType, userId, actorName);
+      await notificationEmitter.record(userId, payload, actorId ? { actorId } : undefined);
+
+      res.json({ success: true, message: `Emitted ${type} notification` });
+    } catch (error) {
+      console.error('[Notifications] testInbox failed:', error);
+      next(error);
+    }
+  };
+}
+
+function buildTestPayload(
+  type: TestInboxType,
+  userId: number,
+  actorName: string
+): { payload: NotificationPayload; actorId: number | null } {
+  switch (type) {
+    case 'friend_request':
+      return {
+        actorId: userId,
+        payload: {
+          type,
+          entityType: 'user',
+          entityId: String(userId),
+          metadata: { actorName },
+        },
+      };
+    case 'friend_accepted':
+      return {
+        actorId: userId,
+        payload: {
+          type,
+          entityType: 'user',
+          entityId: String(userId),
+          metadata: { actorName },
+        },
+      };
+    case 'achievement_unlocked':
+      return {
+        actorId: null,
+        payload: {
+          type,
+          entityType: 'achievement',
+          entityId: 'first-steps',
+          metadata: { achievementName: 'First Steps (test)', rarity: 'common' },
+        },
+      };
+    case 'challenge_invite':
+      return {
+        actorId: userId,
+        payload: {
+          type,
+          entityType: 'challenge',
+          entityId: 'test-challenge',
+          metadata: { challengeName: 'Test Challenge', creatorName: actorName },
+        },
+      };
+    case 'challenge_joined':
+      return {
+        actorId: userId,
+        payload: {
+          type,
+          entityType: 'challenge',
+          entityId: 'test-challenge',
+          metadata: { challengeName: 'Test Challenge', joinerName: actorName },
+        },
+      };
+  }
 }

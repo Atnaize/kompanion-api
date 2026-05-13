@@ -96,4 +96,50 @@ export class InboxController {
       res.status(500).json({ success: false, error: 'Internal server error' });
     }
   };
+
+  /**
+   * DELETE /api/inbox/:id
+   */
+  deleteOne = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const userId = req.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+      await this.inboxService.deleteOne(userId, req.params.id);
+      res.status(200).json({ success: true });
+    } catch (error) {
+      if (error instanceof Error) {
+        const status =
+          error.message === 'Notification not found'
+            ? 404
+            : error.message === 'Invalid notification id'
+              ? 400
+              : 500;
+        res.status(status).json({ success: false, error: error.message });
+        return;
+      }
+      console.error('[Inbox] deleteOne error:', error);
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  };
+
+  /**
+   * DELETE /api/inbox
+   */
+  deleteAll = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const userId = req.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+      const count = await this.inboxService.deleteAll(userId);
+      res.status(200).json({ success: true, data: { count } });
+    } catch (error) {
+      console.error('[Inbox] deleteAll error:', error);
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  };
 }

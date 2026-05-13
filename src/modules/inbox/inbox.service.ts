@@ -117,4 +117,28 @@ export class InboxService {
     });
     return result.count;
   }
+
+  async deleteOne(userId: number, notificationId: string): Promise<void> {
+    let id: bigint;
+    try {
+      id = BigInt(notificationId);
+    } catch {
+      throw new Error('Invalid notification id');
+    }
+    const row = await prisma.notification.findUnique({
+      where: { id },
+      select: { id: true, userId: true },
+    });
+    if (!row || row.userId !== userId) {
+      throw new Error('Notification not found');
+    }
+    await prisma.notification.delete({ where: { id } });
+  }
+
+  async deleteAll(userId: number): Promise<number> {
+    const result = await prisma.notification.deleteMany({
+      where: { userId },
+    });
+    return result.count;
+  }
 }

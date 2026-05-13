@@ -4,7 +4,7 @@ import { prisma } from '@shared/utils/index.js';
 import type { PushSubscription as WebPushSubscription } from 'web-push';
 import type { NotificationPreference } from '@prisma/client';
 
-interface PushPayload {
+export interface PushPayload {
   title: string;
   body: string;
   icon?: string;
@@ -118,7 +118,7 @@ export class NotificationsService {
       title: payload.title,
       body: payload.body,
       icon: payload.icon || '/pwa-192x192.svg',
-      badge: payload.badge || '/pwa-64x64.svg',
+      badge: payload.badge || '/notification-badge.svg',
       data: payload.data || {},
     });
 
@@ -180,28 +180,6 @@ export class NotificationsService {
     );
   }
 
-  async notifyChallengeInvite(
-    userId: number,
-    challengeName: string,
-    inviterName: string
-  ): Promise<void> {
-    const preferences = await this.getPreferences(userId);
-    if (!preferences.challengeInvites) {
-      return;
-    }
-
-    await this.sendToUser(userId, {
-      title: 'Challenge Invitation',
-      body: `${inviterName} invited you to "${challengeName}"`,
-      icon: '/pwa-192x192.svg',
-      badge: '/pwa-64x64.svg',
-      data: {
-        type: 'challenge_invite',
-        challengeName,
-      },
-    });
-  }
-
   async notifyChallengeProgress(
     userId: number,
     challengeName: string,
@@ -216,7 +194,7 @@ export class NotificationsService {
       title: 'Challenge Milestone',
       body: `${challengeName}: ${milestone}`,
       icon: '/pwa-192x192.svg',
-      badge: '/pwa-64x64.svg',
+      badge: '/notification-badge.svg',
       data: {
         type: 'challenge_progress',
         challengeName,
@@ -235,7 +213,7 @@ export class NotificationsService {
       title: 'Challenge Starting Soon',
       body: `"${challengeName}" starts in 24 hours!`,
       icon: '/pwa-192x192.svg',
-      badge: '/pwa-64x64.svg',
+      badge: '/notification-badge.svg',
       data: {
         type: 'challenge_starting',
         challengeName,
@@ -253,7 +231,7 @@ export class NotificationsService {
       title: 'Challenge Ending Soon',
       body: `"${challengeName}" ends in 24 hours!`,
       icon: '/pwa-192x192.svg',
-      badge: '/pwa-64x64.svg',
+      badge: '/notification-badge.svg',
       data: {
         type: 'challenge_ending',
         challengeName,
@@ -286,7 +264,7 @@ export class NotificationsService {
       title: challengeName,
       body: `${participantName} added ${activityCount} ${activityText} (${distanceKm} km)`,
       icon: '/pwa-192x192.svg',
-      badge: '/pwa-64x64.svg',
+      badge: '/notification-badge.svg',
       data: {
         type: 'challenge_activity',
         challengeName,
@@ -311,7 +289,7 @@ export class NotificationsService {
       title: 'Challenge Cancelled',
       body: `"${challengeName}" was cancelled by ${cancelledByName}`,
       icon: '/pwa-192x192.svg',
-      badge: '/pwa-64x64.svg',
+      badge: '/notification-badge.svg',
       data: {
         type: 'challenge_cancelled',
         challengeName,
@@ -333,7 +311,7 @@ export class NotificationsService {
       title: isSuccess ? 'Challenge Completed!' : 'Challenge Ended',
       body: `"${challengeName}" has ended. Check your results!`,
       icon: '/pwa-192x192.svg',
-      badge: '/pwa-64x64.svg',
+      badge: '/notification-badge.svg',
       data: {
         type: 'challenge_completed',
         challengeName,
