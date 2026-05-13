@@ -229,11 +229,15 @@ export class WebhooksService {
 
     try {
       await this.dispatch(event, eventId);
-      await prisma.webhookEvent.updateMany({
+      // Successful processing leaves no audit trail — once the activity is
+      // upserted, the row is just receipt metadata. The `status: processing`
+      // filter preserves `skipped` rows that dispatch() set explicitly.
+      const result = await prisma.webhookEvent.deleteMany({
         where: { id: eventId, status: 'processing' },
-        data: { status: 'processed', processedAt: new Date(), error: null },
       });
-      await this.appendLog(eventId, 'info', '✅ Processed successfully');
+      if (result.count > 0) {
+        console.info(`[Webhook ${eventId.slice(0, 8)}] ✅ Processed and deleted`);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const stack = error instanceof Error ? error.stack : undefined;
@@ -309,11 +313,15 @@ export class WebhooksService {
 
       await this.dispatch(event, eventId);
 
-      await prisma.webhookEvent.update({
-        where: { id: eventId },
-        data: { status: 'processed', processedAt: new Date(), error: null },
+      // Same delete-on-success semantics as the queue worker. `skipped` rows
+      // (set by dispatch() when there's no matching user / handler) survive
+      // because the filter only matches `processing`.
+      const result = await prisma.webhookEvent.deleteMany({
+        where: { id: eventId, status: 'processing' },
       });
-      await this.appendLog(eventId, 'info', '✅ Processed successfully');
+      if (result.count > 0) {
+        console.info(`[Webhook ${eventId.slice(0, 8)}] ✅ Processed and deleted`);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const stack = error instanceof Error ? error.stack : undefined;

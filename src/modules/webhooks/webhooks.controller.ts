@@ -366,7 +366,11 @@ export class WebhooksController {
       // Run synchronously so the admin sees the result immediately.
       await this.service.processEventSafely(event.id);
       const updated = await this.service.getEvent(event.id);
-      res.json({ success: true, data: serialize(updated) });
+      // updated === null means the row was deleted because processing succeeded.
+      res.json({
+        success: true,
+        data: updated ? serialize(updated) : { id: event.id, status: 'processed', deleted: true },
+      });
     } catch (error) {
       next(error);
     }
@@ -445,7 +449,11 @@ export class WebhooksController {
         await this.service.processEventSafely(event.id);
       }
       const updated = await this.service.getEvent(event.id);
-      res.json({ success: true, data: serialize(updated), isDuplicate });
+      res.json({
+        success: true,
+        data: updated ? serialize(updated) : { id: event.id, status: 'processed', deleted: true },
+        isDuplicate,
+      });
     } catch (error) {
       next(error);
     }
