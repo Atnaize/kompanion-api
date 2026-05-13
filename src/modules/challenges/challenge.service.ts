@@ -7,7 +7,7 @@ import type {
   ParticipantStatus,
 } from '@shared/types/index.js';
 import type { Prisma } from '@prisma/client';
-import { NotificationsService } from '../notifications/notifications.service.js';
+import { notificationEmitter } from '../inbox/index.js';
 
 interface AddedActivityInfo {
   userId: number;
@@ -524,7 +524,6 @@ export class ChallengeService {
     });
 
     // Notify all accepted participants (except the creator who cancelled)
-    const notificationsService = new NotificationsService();
     const creator = await prisma.user.findUnique({
       where: { id: userId },
       select: { firstname: true, lastname: true },
@@ -535,20 +534,27 @@ export class ChallengeService {
       (p) => p.userId !== userId && (p.status === 'accepted' || p.status === 'invited')
     );
 
-    for (const participant of acceptedParticipants) {
-      try {
-        await notificationsService.notifyChallengeCancelled(
-          participant.userId,
-          challenge.name,
-          creatorName
-        );
-      } catch (error) {
-        console.error(
-          `[Challenge] Failed to notify user ${participant.userId} about cancellation:`,
-          error
-        );
-      }
-    }
+    await Promise.allSettled(
+      acceptedParticipants.map((participant) =>
+        notificationEmitter
+          .record(
+            participant.userId,
+            {
+              type: 'challenge_cancelled',
+              entityType: 'challenge',
+              entityId: challenge.id,
+              metadata: { challengeName: challenge.name, cancelledByName: creatorName },
+            },
+            { actorId: userId }
+          )
+          .catch((err) =>
+            console.error(
+              `[Inbox] challenge_cancelled emit failed for user ${participant.userId}:`,
+              err
+            )
+          )
+      )
+    );
 
     return updated as unknown as Challenge;
   }
@@ -589,8 +595,6 @@ export class ChallengeService {
   }> {
     // Lazily complete expired challenges before syncing
     await this.completeExpiredChallenges();
-
-    const notificationsService = new NotificationsService();
 
     // Get the syncing user's info for notifications
     const syncingUser = await prisma.user.findUnique({
@@ -665,20 +669,26 @@ export class ChallengeService {
               },
             });
 
-            for (const participant of challenge.participants) {
-              try {
-                await notificationsService.notifyChallengeProgress(
-                  participant.userId,
-                  challenge.name,
-                  'Target reached! Keep going until the end!'
-                );
-              } catch (error) {
-                console.error(
-                  `[Challenge Sync] Failed to notify user ${participant.userId} about milestone:`,
-                  error
-                );
-              }
-            }
+            await Promise.allSettled(
+              challenge.participants.map((participant) =>
+                notificationEmitter
+                  .record(participant.userId, {
+                    type: 'challenge_progress',
+                    entityType: 'challenge',
+                    entityId: challenge.id,
+                    metadata: {
+                      challengeName: challenge.name,
+                      milestone: 'Target reached! Keep going until the end!',
+                    },
+                  })
+                  .catch((err) =>
+                    console.error(
+                      `[Inbox] challenge_progress emit failed for user ${participant.userId}:`,
+                      err
+                    )
+                  )
+              )
+            );
           }
         }
       }
@@ -694,19 +704,32 @@ export class ChallengeService {
           `[Challenge Sync] User ${userId} added ${userAddedInfo.activityCount} activities to challenge "${challenge.name}", notifying ${otherParticipants.length} other participant(s)`
         );
 
-        for (const participant of otherParticipants) {
-          try {
-            await notificationsService.notifyChallengeActivityAdded(
-              participant.userId,
-              challenge.name,
-              `${syncingUser.firstname} ${syncingUser.lastname}`,
-              userAddedInfo.activityCount,
-              userAddedInfo.totalDistance
-            );
-          } catch (error) {
-            console.error(`[Challenge Sync] Failed to notify user ${participant.userId}:`, error);
-          }
-        }
+        await Promise.allSettled(
+          otherParticipants.map((participant) =>
+            notificationEmitter
+              .record(
+                participant.userId,
+                {
+                  type: 'challenge_activity_added',
+                  entityType: 'challenge',
+                  entityId: challenge.id,
+                  metadata: {
+                    challengeName: challenge.name,
+                    participantName: `${syncingUser.firstname} ${syncingUser.lastname}`,
+                    activityCount: userAddedInfo.activityCount,
+                    totalDistance: userAddedInfo.totalDistance,
+                  },
+                },
+                { actorId: userId }
+              )
+              .catch((err) =>
+                console.error(
+                  `[Inbox] challenge_activity_added emit failed for user ${participant.userId}:`,
+                  err
+                )
+              )
+          )
+        );
       }
     }
 
@@ -832,8 +855,6 @@ export class ChallengeService {
       return;
     }
 
-    const notificationsService = new NotificationsService();
-
     for (const challenge of expiredChallenges) {
       const targets = challenge.targets as ChallengeTargets;
 
@@ -870,20 +891,23 @@ export class ChallengeService {
       });
 
       // Notify all participants
-      for (const participant of challenge.participants) {
-        try {
-          await notificationsService.notifyChallengeCompleted(
-            participant.userId,
-            challenge.name,
-            isSuccess
-          );
-        } catch (error) {
-          console.error(
-            `[Challenge] Failed to notify user ${participant.userId} about challenge completion:`,
-            error
-          );
-        }
-      }
+      await Promise.allSettled(
+        challenge.participants.map((participant) =>
+          notificationEmitter
+            .record(participant.userId, {
+              type: 'challenge_completed',
+              entityType: 'challenge',
+              entityId: challenge.id,
+              metadata: { challengeName: challenge.name, isSuccess },
+            })
+            .catch((err) =>
+              console.error(
+                `[Inbox] challenge_completed emit failed for user ${participant.userId}:`,
+                err
+              )
+            )
+        )
+      );
 
       console.info(
         `[Challenge] Auto-completed challenge "${challenge.name}" (${challenge.id}) as ${newStatus}`

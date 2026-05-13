@@ -9,7 +9,11 @@ export type NotificationType =
   | 'friend_accepted' // someone accepted my outgoing friend request
   | 'achievement_unlocked' // I unlocked an achievement (system-driven)
   | 'challenge_invite' // someone invited me to a challenge
-  | 'challenge_joined'; // someone accepted my challenge invitation
+  | 'challenge_joined' // someone accepted my challenge invitation
+  | 'challenge_progress' // a milestone was reached in a challenge I'm in
+  | 'challenge_activity_added' // another participant logged activities in a shared challenge
+  | 'challenge_cancelled' // the creator cancelled a challenge I'm in
+  | 'challenge_completed'; // a challenge I'm in ended (succeeded or failed)
 
 export interface FriendRequestMetadata {
   actorName: string;
@@ -32,6 +36,28 @@ export interface ChallengeInviteMetadata {
 export interface ChallengeJoinedNotifMetadata {
   challengeName: string;
   joinerName: string;
+}
+
+export interface ChallengeProgressMetadata {
+  challengeName: string;
+  milestone: string;
+}
+
+export interface ChallengeActivityAddedMetadata {
+  challengeName: string;
+  participantName: string;
+  activityCount: number;
+  totalDistance: number;
+}
+
+export interface ChallengeCancelledMetadata {
+  challengeName: string;
+  cancelledByName: string;
+}
+
+export interface ChallengeCompletedMetadata {
+  challengeName: string;
+  isSuccess: boolean;
 }
 
 export type NotificationPayload =
@@ -62,6 +88,30 @@ export type NotificationPayload =
   | {
       type: 'challenge_joined';
       metadata: ChallengeJoinedNotifMetadata;
+      entityType: 'challenge';
+      entityId: string;
+    }
+  | {
+      type: 'challenge_progress';
+      metadata: ChallengeProgressMetadata;
+      entityType: 'challenge';
+      entityId: string;
+    }
+  | {
+      type: 'challenge_activity_added';
+      metadata: ChallengeActivityAddedMetadata;
+      entityType: 'challenge';
+      entityId: string;
+    }
+  | {
+      type: 'challenge_cancelled';
+      metadata: ChallengeCancelledMetadata;
+      entityType: 'challenge';
+      entityId: string;
+    }
+  | {
+      type: 'challenge_completed';
+      metadata: ChallengeCompletedMetadata;
       entityType: 'challenge';
       entityId: string;
     };

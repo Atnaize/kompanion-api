@@ -344,10 +344,12 @@ model NotificationPreference {
   id                          Int      @id @default(autoincrement())
   userId                      Int      @unique
 
-  // Challenge-related (legacy fields, pre-M3)
+  // Challenge-related — `challengeUpdates` is a single umbrella for joins,
+  // milestones, activity updates, cancellations, and completions of challenges
+  // the user is in (separate from `challengeInvites` which controls "can someone
+  // pull me into a new challenge").
   challengeInvites            Boolean  @default(true)
-  challengeProgress           Boolean  @default(true)
-  challengeReminders          Boolean  @default(true)
+  challengeUpdates            Boolean  @default(true)
 
   // Friend-related (M3)
   friendRequests              Boolean  @default(true)

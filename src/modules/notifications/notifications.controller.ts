@@ -121,8 +121,7 @@ export class NotificationsController {
 
       const validatedUpdates: {
         challengeInvites?: boolean;
-        challengeProgress?: boolean;
-        challengeReminders?: boolean;
+        challengeUpdates?: boolean;
         friendRequests?: boolean;
         friendAccepted?: boolean;
         achievementUnlocked?: boolean;
@@ -130,8 +129,7 @@ export class NotificationsController {
 
       const boolFields = [
         'challengeInvites',
-        'challengeProgress',
-        'challengeReminders',
+        'challengeUpdates',
         'friendRequests',
         'friendAccepted',
         'achievementUnlocked',

@@ -76,7 +76,11 @@ function isPushEnabled(
     case 'challenge_invite':
       return prefs.challengeInvites;
     case 'challenge_joined':
-      return prefs.challengeProgress;
+    case 'challenge_progress':
+    case 'challenge_activity_added':
+    case 'challenge_cancelled':
+    case 'challenge_completed':
+      return prefs.challengeUpdates;
   }
 }
 
@@ -111,6 +115,38 @@ function buildPushPayload(payload: NotificationPayload): PushPayload {
         title: payload.metadata.challengeName,
         body: `${payload.metadata.joinerName} joined your challenge`,
         data: { type: 'challenge_joined', challengeId: payload.entityId },
+      };
+    case 'challenge_progress':
+      return {
+        title: payload.metadata.challengeName,
+        body: payload.metadata.milestone,
+        data: { type: 'challenge_progress', challengeId: payload.entityId },
+      };
+    case 'challenge_activity_added': {
+      const { challengeName, participantName, activityCount, totalDistance } = payload.metadata;
+      const distanceKm = (totalDistance / 1000).toFixed(1);
+      const activityText = activityCount === 1 ? 'activity' : 'activities';
+      return {
+        title: challengeName,
+        body: `${participantName} added ${activityCount} ${activityText} (${distanceKm} km)`,
+        data: { type: 'challenge_activity_added', challengeId: payload.entityId },
+      };
+    }
+    case 'challenge_cancelled':
+      return {
+        title: 'Challenge cancelled',
+        body: `"${payload.metadata.challengeName}" was cancelled by ${payload.metadata.cancelledByName}`,
+        data: { type: 'challenge_cancelled', challengeId: payload.entityId },
+      };
+    case 'challenge_completed':
+      return {
+        title: payload.metadata.isSuccess ? 'Challenge completed!' : 'Challenge ended',
+        body: `"${payload.metadata.challengeName}" has ended. Check your results!`,
+        data: {
+          type: 'challenge_completed',
+          challengeId: payload.entityId,
+          isSuccess: payload.metadata.isSuccess,
+        },
       };
   }
 }
