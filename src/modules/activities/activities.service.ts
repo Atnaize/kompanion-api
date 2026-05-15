@@ -3,6 +3,7 @@ import { config } from '@config/env.js';
 import { parseRateLimitHeaders, prisma, throwIfRateLimited } from '@shared/utils/index.js';
 import { AuthService } from '../auth/auth.service.js';
 import { ChallengeService } from '../challenges/challenge.service.js';
+import { FriendsService } from '../friends/friends.service.js';
 import { PersonalRecordsService } from '../personal-records/personal-records.service.js';
 import { feedEventEmitter } from '../feed/index.js';
 import type {
@@ -32,7 +33,38 @@ const hashString = (s: string): number => {
 export class ActivitiesService {
   private authService = new AuthService();
   private challengeService = new ChallengeService();
+  private friendsService = new FriendsService();
   private personalRecordsService = new PersonalRecordsService();
+
+  /**
+   * Resolve an activity for a read request. Returns the row + the User who
+   * owns it (needed to drive Strava API calls with the correct token).
+   *
+   * Returns null when the activity doesn't exist OR the viewer can't see it
+   * (not the owner and not a mutual friend). We collapse both cases to null
+   * on purpose — non-friends should see "not found" rather than "forbidden",
+   * matching the privacy model used for profile stats.
+   */
+  private async resolveActivityForRead(
+    activityId: number,
+    viewer: User
+  ) {
+    const dbActivity = await prisma.activity.findUnique({
+      where: { id: BigInt(activityId) },
+    });
+    if (!dbActivity) return null;
+    if (dbActivity.userId === viewer.id) {
+      return { dbActivity, owner: viewer };
+    }
+    try {
+      await this.friendsService.assertFriendsOrSelf(viewer.id, dbActivity.userId);
+    } catch {
+      return null;
+    }
+    const owner = await this.authService.getUserById(dbActivity.userId);
+    if (!owner) return null;
+    return { dbActivity, owner };
+  }
 
   async fetchActivities(
     user: User,
@@ -346,20 +378,17 @@ export class ActivitiesService {
     activityId: number,
     user: User
   ): Promise<StravaDetailedActivity | null> {
-    // First check if activity belongs to user
-    const dbActivity = await prisma.activity.findFirst({
-      where: {
-        id: BigInt(activityId),
-        userId: user.id,
-      },
-    });
-
-    if (!dbActivity) {
+    const resolved = await this.resolveActivityForRead(activityId, user);
+    if (!resolved) {
       return null;
     }
+    const { dbActivity, owner } = resolved;
 
-    // Fetch detailed activity from Strava API (includes segment efforts)
-    const accessToken = await this.authService.ensureValidToken(user);
+    // Fetch detailed activity from Strava API (includes segment efforts).
+    // Use the OWNER's token — Strava scopes per-athlete, so the viewer's
+    // token can't read a friend's activity even when the viewer has access
+    // at our app's authorization layer.
+    const accessToken = await this.authService.ensureValidToken(owner);
 
     try {
       const response = await axios.get<StravaDetailedActivity>(
@@ -415,16 +444,12 @@ export class ActivitiesService {
       'grade_smooth',
     ]
   ): Promise<StravaStreamSet | null> {
-    const dbActivity = await prisma.activity.findFirst({
-      where: { id: BigInt(activityId), userId: user.id },
-      select: { id: true },
-    });
-
-    if (!dbActivity) {
+    const resolved = await this.resolveActivityForRead(activityId, user);
+    if (!resolved) {
       return null;
     }
 
-    const accessToken = await this.authService.ensureValidToken(user);
+    const accessToken = await this.authService.ensureValidToken(resolved.owner);
 
     try {
       const response = await axios.get<StravaStreamSet>(
@@ -445,16 +470,12 @@ export class ActivitiesService {
   }
 
   async getActivityLaps(activityId: number, user: User): Promise<StravaLap[] | null> {
-    const dbActivity = await prisma.activity.findFirst({
-      where: { id: BigInt(activityId), userId: user.id },
-      select: { id: true },
-    });
-
-    if (!dbActivity) {
+    const resolved = await this.resolveActivityForRead(activityId, user);
+    if (!resolved) {
       return null;
     }
 
-    const accessToken = await this.authService.ensureValidToken(user);
+    const accessToken = await this.authService.ensureValidToken(resolved.owner);
 
     try {
       const response = await axios.get<StravaLap[]>(
@@ -482,13 +503,10 @@ export class ActivitiesService {
    */
 
   async getActivityKudoers(activityId: number, user: User): Promise<StravaSummaryAthlete[] | null> {
-    const dbActivity = await prisma.activity.findFirst({
-      where: { id: BigInt(activityId), userId: user.id },
-      select: { id: true, kudosCount: true },
-    });
-    if (!dbActivity) return null;
+    const resolved = await this.resolveActivityForRead(activityId, user);
+    if (!resolved) return null;
 
-    const expected = dbActivity.kudosCount;
+    const expected = resolved.dbActivity.kudosCount;
     if (expected === 0) return [];
 
     const cached = await prisma.activityKudoer.findMany({
@@ -500,7 +518,7 @@ export class ActivitiesService {
     }
 
     console.info(`[Kudos] Cache stale (cached=${cached.length}, expected=${expected}); refetching`);
-    const fresh = await this.fetchKudoersFromStrava(activityId, user);
+    const fresh = await this.fetchKudoersFromStrava(activityId, resolved.owner);
     if (fresh === null) return cached.map((k) => this.kudoerToStrava(k));
 
     await prisma.activityKudoer.deleteMany({ where: { activityId: BigInt(activityId) } });
@@ -525,13 +543,10 @@ export class ActivitiesService {
   }
 
   async getActivityComments(activityId: number, user: User): Promise<StravaComment[] | null> {
-    const dbActivity = await prisma.activity.findFirst({
-      where: { id: BigInt(activityId), userId: user.id },
-      select: { id: true, commentCount: true },
-    });
-    if (!dbActivity) return null;
+    const resolved = await this.resolveActivityForRead(activityId, user);
+    if (!resolved) return null;
 
-    const expected = dbActivity.commentCount;
+    const expected = resolved.dbActivity.commentCount;
     if (expected === 0) return [];
 
     const cached = await prisma.activityComment.findMany({
@@ -545,7 +560,7 @@ export class ActivitiesService {
     console.info(
       `[Comments] Cache stale (cached=${cached.length}, expected=${expected}); refetching`
     );
-    const fresh = await this.fetchCommentsFromStrava(activityId, user);
+    const fresh = await this.fetchCommentsFromStrava(activityId, resolved.owner);
     if (fresh === null) return cached.map((c) => this.commentToStrava(c, activityId));
 
     // Strava occasionally strips the athlete from comments (deleted / blocked /
@@ -608,13 +623,10 @@ export class ActivitiesService {
   }
 
   async getActivityPhotos(activityId: number, user: User): Promise<StravaPhoto[] | null> {
-    const dbActivity = await prisma.activity.findFirst({
-      where: { id: BigInt(activityId), userId: user.id },
-      select: { id: true, photoCount: true },
-    });
-    if (!dbActivity) return null;
+    const resolved = await this.resolveActivityForRead(activityId, user);
+    if (!resolved) return null;
 
-    const expected = dbActivity.photoCount;
+    const expected = resolved.dbActivity.photoCount;
     if (expected === 0) return [];
 
     const cached = await prisma.activityPhoto.findMany({
@@ -627,7 +639,7 @@ export class ActivitiesService {
     console.info(
       `[Photos] Cache stale (cached=${cached.length}, expected=${expected}); refetching`
     );
-    const fresh = await this.fetchPhotosFromStrava(activityId, user);
+    const fresh = await this.fetchPhotosFromStrava(activityId, resolved.owner);
     if (fresh === null) return cached.map((p) => this.photoToStrava(p, activityId));
 
     await prisma.activityPhoto.deleteMany({ where: { activityId: BigInt(activityId) } });
