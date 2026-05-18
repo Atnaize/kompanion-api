@@ -1,7 +1,10 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import { config } from './config/env.js';
 import { errorHandler } from './shared/middleware/index.js';
+import { logger, httpLogger } from './shared/logger/index.js';
+import { globalLimiter, authLimiter, syncLimiter } from './shared/security/index.js';
 import { authRoutes } from './modules/auth/index.js';
 import { activitiesRoutes } from './modules/activities/index.js';
 import { statsRoutes } from './modules/stats/index.js';
@@ -20,23 +23,34 @@ import { getOpenApiDocument } from './shared/openapi/document.js';
 
 const app = express();
 
+// Trust Vercel's edge proxy so req.ip is the real client (otherwise the
+// rate limiter would see a single upstream IP for everyone). Single hop only.
+app.set('trust proxy', 1);
+
+app.use(httpLogger);
+
+// helmet — sane security headers. CSP is off because the Scalar docs page
+// serves an inline page from a third-party CDN; turn back on once we serve
+// the reference behind our own bundle.
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+  })
+);
+
 app.use(
   cors({
     origin: (origin, callback) => {
-      console.info(`📡 CORS check for origin: ${origin || 'no-origin'}`);
-      console.info(`🔐 Allowed origins: ${config.allowedOrigins.join(', ')}`);
-
-      // Allow requests with no origin (like mobile apps or curl)
+      // Allow requests with no origin (curl, mobile apps, server-to-server)
       if (!origin) {
-        console.info('✅ Allowing request with no origin');
         return callback(null, true);
       }
 
       if (config.allowedOrigins.includes(origin)) {
-        console.info(`✅ Origin ${origin} is allowed`);
         callback(null, true);
       } else {
-        console.info(`❌ Origin ${origin} is NOT allowed`);
+        logger.warn({ origin }, 'CORS rejected');
         callback(new Error('Not allowed by CORS'));
       }
     },
@@ -45,16 +59,16 @@ app.use(
 );
 
 // Capture the raw request body so QStash signature verification can hash it.
-// The verify callback is cheap and only retains a Buffer reference for the
-// duration of the request.
+// 1mb is generous for webhook payloads; bumps real-world abuse floor.
 app.use(
   express.json({
+    limit: '1mb',
     verify: (req, _res, buf) => {
       (req as express.Request).rawBody = buf;
     },
   })
 );
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 app.get('/openapi.json', (_req, res) => {
   res.json(getOpenApiDocument());
@@ -84,7 +98,13 @@ app.get('/debug/config', (_req, res) => {
   });
 });
 
-app.use('/api/auth', authRoutes);
+// Global throttle on /api/* — generous floor against runaway loops.
+app.use('/api', globalLimiter);
+
+// Tighter limiters on hot paths.
+app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/activities/sync', syncLimiter);
+
 app.use('/api/activities', activitiesRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/achievements', achievementsRoutes);
@@ -107,9 +127,13 @@ export default app;
 // Only listen on port if not in serverless environment
 if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
   app.listen(config.port, () => {
-    console.info(`🚀 Kompanion API running on http://localhost:${config.port}`);
-    console.info(`📚 API reference: http://localhost:${config.port}/`);
-    console.info(`📝 Environment: ${config.nodeEnv}`);
-    console.info(`🌐 Allowed origins: ${config.allowedOrigins.join(', ')}`);
+    logger.info(
+      {
+        port: config.port,
+        env: config.nodeEnv,
+        allowedOrigins: config.allowedOrigins,
+      },
+      `🚀 Kompanion API listening on http://localhost:${config.port}`
+    );
   });
 }

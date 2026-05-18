@@ -78,6 +78,8 @@ model FeedEvent {
   actor       User @relation(fields: [actorId], references: [id], onDelete: Cascade)
   @@index([actorId, createdAt])
   @@index([createdAt])
+  // Type-filtered feed queries ("show me only PR events", admin dashboards).
+  @@index([type, createdAt])
   @@map("feed_events")
 }
 
@@ -181,6 +183,9 @@ model Activity {
   @@index([type])
   @@index([userId, startDate])
   @@index([userId, startDateLocal])
+  // Filter activities by user + type (e.g. "all Run activities for user X")
+  // — used by retroactive challenge backfill and per-sport stat queries.
+  @@index([userId, type])
   @@map("activities")
 }
 
@@ -609,4 +614,18 @@ model StravaApiGrant {
   @@index([userId, kind, validUntil])
   @@index([validUntil])
   @@map("strava_api_grants")
+}
+
+// Cross-process debounce / lease for background jobs (e.g. lazy completion
+// of expired challenges). One row per job name; callers attempt an atomic
+// `updateMany({ where: { name, lastRunAt < cutoff }, ... })` and only the
+// winner runs the job. Replaces module-level timestamps that don't survive
+// serverless cold starts and aren't safe across concurrent invocations.
+model ScheduledJobRun {
+  name       String   @id
+  lastRunAt  DateTime @default(now())
+  lastResult String?  // 'ok' | 'error' | free-form
+  updatedAt  DateTime @updatedAt
+
+  @@map("scheduled_job_runs")
 }

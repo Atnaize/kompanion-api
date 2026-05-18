@@ -178,5 +178,4 @@ export class NotificationsService {
       `[Notifications] Sent to user ${userId}: ${succeeded} succeeded, ${failed} failed`
     );
   }
-
 }

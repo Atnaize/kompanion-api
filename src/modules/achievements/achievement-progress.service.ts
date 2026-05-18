@@ -1,6 +1,36 @@
 import { prisma } from '@shared/utils/index.js';
 import type { UserStats } from '@shared/types/index.js';
 
+/**
+ * Compute the stored `percentage` column from current/target values.
+ *
+ * The DB row stores all three (currentValue, targetValue, percentage) for
+ * cheap reads, but `percentage` is purely derived — funnel every write
+ * through `upsertProgress` below so it cannot drift.
+ */
+export function computePercentage(currentValue: number, targetValue: number): number {
+  if (targetValue <= 0) return 0;
+  return Math.min(100, Math.max(0, Math.floor((currentValue / targetValue) * 100)));
+}
+
+interface ProgressInput {
+  userId: number;
+  achievementId: string;
+  currentValue: number;
+  targetValue: number;
+}
+
+export async function upsertProgress(input: ProgressInput): Promise<void> {
+  const percentage = computePercentage(input.currentValue, input.targetValue);
+  await prisma.achievementProgress.upsert({
+    where: {
+      userId_achievementId: { userId: input.userId, achievementId: input.achievementId },
+    },
+    create: { ...input, percentage },
+    update: { currentValue: input.currentValue, targetValue: input.targetValue, percentage },
+  });
+}
+
 export class AchievementProgressService {
   /**
    * Get stats based on activities since achievementStartDate (for achievements only)
@@ -89,13 +119,12 @@ export class AchievementProgressService {
 
       const currentValue = this.getCurrentValue(achievement, stats);
       const targetValue = achievement.requirementValue;
-      const percentage = Math.min(100, Math.floor((currentValue / targetValue) * 100));
 
-      // Upsert progress
-      await prisma.achievementProgress.upsert({
-        where: { userId_achievementId: { userId, achievementId: achievement.id } },
-        create: { userId, achievementId: achievement.id, currentValue, targetValue, percentage },
-        update: { currentValue, percentage },
+      await upsertProgress({
+        userId,
+        achievementId: achievement.id,
+        currentValue,
+        targetValue,
       });
     }
   }

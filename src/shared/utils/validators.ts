@@ -138,8 +138,11 @@ export function validateString(
 /**
  * Validates pagination parameters
  */
+import { config } from '../../config/env.js';
+
 export function validatePagination(params: { page?: unknown; limit?: unknown }): ValidationResult {
   const { page, limit } = params;
+  const max = config.pagination.maxLimit;
 
   if (page !== undefined) {
     const pageNum = Number(page);
@@ -150,8 +153,8 @@ export function validatePagination(params: { page?: unknown; limit?: unknown }):
 
   if (limit !== undefined) {
     const limitNum = Number(limit);
-    if (isNaN(limitNum) || limitNum < 1 || limitNum > 100) {
-      return { isValid: false, error: 'Limit must be between 1 and 100' };
+    if (isNaN(limitNum) || limitNum < 1 || limitNum > max) {
+      return { isValid: false, error: `Limit must be between 1 and ${max}` };
     }
   }
 

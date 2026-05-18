@@ -1,29 +1,44 @@
 import type { Request, Response, NextFunction } from 'express';
 import { ActivitiesService } from './activities.service.js';
-import { AuthService } from '../auth/auth.service.js';
 import { HttpStatus } from '@shared/types/index.js';
-import { validateNumericId } from '@shared/utils/index.js';
+import { validateNumericId, EventStream } from '@shared/utils/index.js';
+import { logger } from '@shared/logger/index.js';
+
+type SyncEvent =
+  | { type: 'fetching'; current?: number; total?: number; message?: string }
+  | { type: 'saving'; current?: number; total?: number; message?: string }
+  | { type: 'processing'; current?: number; total?: number; message?: string }
+  | {
+      type: 'complete';
+      total: number;
+      message: string;
+      challengesSynced?: number;
+      challengeActivitiesAdded?: number;
+    }
+  | { type: 'error'; message: string };
+
+const parseActivityId = (raw: unknown, res: Response): number | null => {
+  const validation = validateNumericId(raw);
+  if (!validation.isValid) {
+    res
+      .status(HttpStatus.BAD_REQUEST)
+      .json({ success: false, error: validation.error || 'Invalid activity ID' });
+    return null;
+  }
+  return parseInt(String(raw), 10);
+};
+
+const send404 = (res: Response, error = 'Activity not found'): void => {
+  res.status(HttpStatus.NOT_FOUND).json({ success: false, error });
+};
 
 export class ActivitiesController {
   private activitiesService = new ActivitiesService();
-  private authService = new AuthService();
 
   list = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      if (!req.userId) {
-        res.status(HttpStatus.UNAUTHORIZED).json({
-          success: false,
-          error: 'Not authenticated',
-        });
-        return;
-      }
-
-      const activities = await this.activitiesService.getUserActivities(req.userId);
-
-      res.json({
-        success: true,
-        data: activities,
-      });
+      const activities = await this.activitiesService.getUserActivities(req.user!.id);
+      res.json({ success: true, data: activities });
     } catch (error) {
       next(error);
     }
@@ -31,26 +46,7 @@ export class ActivitiesController {
 
   sync = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      if (!req.stravaId) {
-        res.status(HttpStatus.UNAUTHORIZED).json({
-          success: false,
-          error: 'Not authenticated',
-        });
-        return;
-      }
-
-      const user = await this.authService.getUserByStravaId(req.stravaId);
-
-      if (!user) {
-        res.status(HttpStatus.NOT_FOUND).json({
-          success: false,
-          error: 'User not found',
-        });
-        return;
-      }
-
-      const result = await this.activitiesService.syncActivities(user);
-
+      const result = await this.activitiesService.syncActivities(req.user!);
       res.json({
         success: true,
         data: result,
@@ -62,129 +58,51 @@ export class ActivitiesController {
   };
 
   syncWithProgress = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const user = req.user!;
+    logger.info({ reqId: req.id, userId: user.id }, '[Sync] start');
+
+    const stream = new EventStream<SyncEvent>(req, res);
+
     try {
-      console.info(
-        '[Sync] Starting sync with progress - stravaId:',
-        req.stravaId,
-        'userId:',
-        req.userId
+      const result = await this.activitiesService.syncActivitiesWithProgress(user, (e) =>
+        stream.send(e as SyncEvent)
       );
 
-      if (!req.stravaId) {
-        console.warn('[Sync] Failed: stravaId not found in request');
-        res.status(HttpStatus.UNAUTHORIZED).json({
-          success: false,
-          error: 'Not authenticated',
-        });
-        return;
-      }
+      logger.info({ reqId: req.id, userId: user.id, synced: result.synced }, '[Sync] complete');
 
-      const user = await this.authService.getUserByStravaId(req.stravaId);
-
-      if (!user) {
-        console.warn('[Sync] Failed: User not found for stravaId:', req.stravaId);
-        res.status(HttpStatus.NOT_FOUND).json({
-          success: false,
-          error: 'User not found',
-        });
-        return;
-      }
-
-      console.info('[Sync] User found:', user.id, '- starting sync');
-
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      res.flushHeaders();
-
-      const sendEvent = (data: {
-        type: 'fetching' | 'saving' | 'processing' | 'complete' | 'error';
-        current?: number;
-        total?: number;
-        message?: string;
-        challengesSynced?: number;
-        challengeActivitiesAdded?: number;
-      }): void => {
-        res.write(`data: ${JSON.stringify(data)}\n\n`);
-      };
-
-      try {
-        const result = await this.activitiesService.syncActivitiesWithProgress(user, sendEvent);
-
-        console.info('[Sync] Completed successfully - synced:', result.synced);
-
-        sendEvent({
-          type: 'complete',
-          total: result.synced,
-          message: `Synced ${result.synced} activities`,
-          challengesSynced: result.challengesSynced,
-          challengeActivitiesAdded: result.challengeActivitiesAdded,
-        });
-
-        res.end();
-      } catch (error) {
-        console.error('[Sync] Error during sync:', error instanceof Error ? error.message : error);
-        sendEvent({
-          type: 'error',
-          message: error instanceof Error ? error.message : 'Sync failed',
-        });
-        res.end();
-      }
+      stream.send({
+        type: 'complete',
+        total: result.synced,
+        message: `Synced ${result.synced} activities`,
+        challengesSynced: result.challengesSynced,
+        challengeActivitiesAdded: result.challengeActivitiesAdded,
+      });
+      stream.close();
     } catch (error) {
-      console.error('[Sync] Unexpected error:', error);
-      next(error);
+      logger.error({ reqId: req.id, userId: user.id, err: error }, '[Sync] failed');
+      stream.send({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Sync failed',
+      });
+      stream.close();
+      // Don't forward to error middleware — we've already responded via SSE.
+      if (!res.headersSent) next(error);
     }
   };
 
   getById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { id } = req.params;
+      const activityId = parseActivityId(req.params.id, res);
+      if (activityId === null) return;
 
-      if (!req.stravaId) {
-        res.status(HttpStatus.UNAUTHORIZED).json({
-          success: false,
-          error: 'Not authenticated',
-        });
-        return;
-      }
-
-      // Validate activity ID
-      const validation = validateNumericId(id);
-      if (!validation.isValid) {
-        res.status(HttpStatus.BAD_REQUEST).json({
-          success: false,
-          error: validation.error || 'Invalid activity ID',
-        });
-        return;
-      }
-
-      const activityId = parseInt(id, 10);
-
-      const user = await this.authService.getUserByStravaId(req.stravaId);
-
-      if (!user) {
-        res.status(HttpStatus.NOT_FOUND).json({
-          success: false,
-          error: 'User not found',
-        });
-        return;
-      }
-
-      // Fetch detailed activity with segment efforts from Strava
-      const activity = await this.activitiesService.getDetailedActivityById(activityId, user);
+      const activity = await this.activitiesService.getDetailedActivityById(activityId, req.user!);
 
       if (!activity) {
-        res.status(HttpStatus.NOT_FOUND).json({
-          success: false,
-          error: 'Activity not found',
-        });
+        send404(res);
         return;
       }
 
-      res.json({
-        success: true,
-        data: activity,
-      });
+      res.json({ success: true, data: activity });
     } catch (error) {
       next(error);
     }
@@ -192,36 +110,14 @@ export class ActivitiesController {
 
   getStreams = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { id } = req.params;
+      const activityId = parseActivityId(req.params.id, res);
+      if (activityId === null) return;
 
-      if (!req.stravaId) {
-        res.status(HttpStatus.UNAUTHORIZED).json({ success: false, error: 'Not authenticated' });
-        return;
-      }
-
-      const validation = validateNumericId(id);
-      if (!validation.isValid) {
-        res
-          .status(HttpStatus.BAD_REQUEST)
-          .json({ success: false, error: validation.error || 'Invalid activity ID' });
-        return;
-      }
-
-      const activityId = parseInt(id, 10);
-      const user = await this.authService.getUserByStravaId(req.stravaId);
-
-      if (!user) {
-        res.status(HttpStatus.NOT_FOUND).json({ success: false, error: 'User not found' });
-        return;
-      }
-
-      const streams = await this.activitiesService.getActivityStreams(activityId, user);
-
+      const streams = await this.activitiesService.getActivityStreams(activityId, req.user!);
       if (streams === null) {
-        res.status(HttpStatus.NOT_FOUND).json({ success: false, error: 'Activity not found' });
+        send404(res);
         return;
       }
-
       res.json({ success: true, data: streams });
     } catch (error) {
       next(error);
@@ -230,27 +126,12 @@ export class ActivitiesController {
 
   getKudoers = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { id } = req.params;
-      if (!req.stravaId) {
-        res.status(HttpStatus.UNAUTHORIZED).json({ success: false, error: 'Not authenticated' });
-        return;
-      }
-      const validation = validateNumericId(id);
-      if (!validation.isValid) {
-        res
-          .status(HttpStatus.BAD_REQUEST)
-          .json({ success: false, error: validation.error || 'Invalid activity ID' });
-        return;
-      }
-      const activityId = parseInt(id, 10);
-      const user = await this.authService.getUserByStravaId(req.stravaId);
-      if (!user) {
-        res.status(HttpStatus.NOT_FOUND).json({ success: false, error: 'User not found' });
-        return;
-      }
-      const kudoers = await this.activitiesService.getActivityKudoers(activityId, user);
+      const activityId = parseActivityId(req.params.id, res);
+      if (activityId === null) return;
+
+      const kudoers = await this.activitiesService.getActivityKudoers(activityId, req.user!);
       if (kudoers === null) {
-        res.status(HttpStatus.NOT_FOUND).json({ success: false, error: 'Activity not found' });
+        send404(res);
         return;
       }
       res.json({ success: true, data: kudoers });
@@ -261,27 +142,12 @@ export class ActivitiesController {
 
   getComments = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { id } = req.params;
-      if (!req.stravaId) {
-        res.status(HttpStatus.UNAUTHORIZED).json({ success: false, error: 'Not authenticated' });
-        return;
-      }
-      const validation = validateNumericId(id);
-      if (!validation.isValid) {
-        res
-          .status(HttpStatus.BAD_REQUEST)
-          .json({ success: false, error: validation.error || 'Invalid activity ID' });
-        return;
-      }
-      const activityId = parseInt(id, 10);
-      const user = await this.authService.getUserByStravaId(req.stravaId);
-      if (!user) {
-        res.status(HttpStatus.NOT_FOUND).json({ success: false, error: 'User not found' });
-        return;
-      }
-      const comments = await this.activitiesService.getActivityComments(activityId, user);
+      const activityId = parseActivityId(req.params.id, res);
+      if (activityId === null) return;
+
+      const comments = await this.activitiesService.getActivityComments(activityId, req.user!);
       if (comments === null) {
-        res.status(HttpStatus.NOT_FOUND).json({ success: false, error: 'Activity not found' });
+        send404(res);
         return;
       }
       res.json({ success: true, data: comments });
@@ -292,27 +158,12 @@ export class ActivitiesController {
 
   getPhotos = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { id } = req.params;
-      if (!req.stravaId) {
-        res.status(HttpStatus.UNAUTHORIZED).json({ success: false, error: 'Not authenticated' });
-        return;
-      }
-      const validation = validateNumericId(id);
-      if (!validation.isValid) {
-        res
-          .status(HttpStatus.BAD_REQUEST)
-          .json({ success: false, error: validation.error || 'Invalid activity ID' });
-        return;
-      }
-      const activityId = parseInt(id, 10);
-      const user = await this.authService.getUserByStravaId(req.stravaId);
-      if (!user) {
-        res.status(HttpStatus.NOT_FOUND).json({ success: false, error: 'User not found' });
-        return;
-      }
-      const photos = await this.activitiesService.getActivityPhotos(activityId, user);
+      const activityId = parseActivityId(req.params.id, res);
+      if (activityId === null) return;
+
+      const photos = await this.activitiesService.getActivityPhotos(activityId, req.user!);
       if (photos === null) {
-        res.status(HttpStatus.NOT_FOUND).json({ success: false, error: 'Activity not found' });
+        send404(res);
         return;
       }
       res.json({ success: true, data: photos });
@@ -323,72 +174,40 @@ export class ActivitiesController {
 
   getLaps = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { id } = req.params;
+      const activityId = parseActivityId(req.params.id, res);
+      if (activityId === null) return;
 
-      if (!req.stravaId) {
-        res.status(HttpStatus.UNAUTHORIZED).json({ success: false, error: 'Not authenticated' });
-        return;
-      }
-
-      const validation = validateNumericId(id);
-      if (!validation.isValid) {
-        res
-          .status(HttpStatus.BAD_REQUEST)
-          .json({ success: false, error: validation.error || 'Invalid activity ID' });
-        return;
-      }
-
-      const activityId = parseInt(id, 10);
-      const user = await this.authService.getUserByStravaId(req.stravaId);
-
-      if (!user) {
-        res.status(HttpStatus.NOT_FOUND).json({ success: false, error: 'User not found' });
-        return;
-      }
-
-      const laps = await this.activitiesService.getActivityLaps(activityId, user);
-
+      const laps = await this.activitiesService.getActivityLaps(activityId, req.user!);
       if (laps === null) {
-        res.status(HttpStatus.NOT_FOUND).json({ success: false, error: 'Activity not found' });
+        send404(res);
         return;
       }
-
       res.json({ success: true, data: laps });
     } catch (error) {
       next(error);
     }
   };
 
-  /**
-   * POST /api/activities/test/delete
-   * Delete activities for testing (cleans up all related data)
-   */
+  // POST /api/activities/test/delete — deletes activities and recomputes
+  // dependent rows (stats, challenges, achievements). Wide blast radius:
+  // intended only for test users / E2E setup.
   deleteActivitiesForTest = async (
     req: Request,
     res: Response,
     next: NextFunction
   ): Promise<void> => {
     try {
-      if (!req.userId) {
-        res.status(HttpStatus.UNAUTHORIZED).json({
-          success: false,
-          error: 'Not authenticated',
-        });
-        return;
-      }
-
       const { activityIds } = req.body as { activityIds?: number[] };
 
       if (!activityIds || !Array.isArray(activityIds) || activityIds.length === 0) {
-        res.status(HttpStatus.BAD_REQUEST).json({
-          success: false,
-          error: 'activityIds array is required',
-        });
+        res
+          .status(HttpStatus.BAD_REQUEST)
+          .json({ success: false, error: 'activityIds array is required' });
         return;
       }
 
       const result = await this.activitiesService.deleteActivitiesAndRecalculate(
-        req.userId,
+        req.user!.id,
         activityIds
       );
 

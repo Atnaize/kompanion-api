@@ -33,6 +33,11 @@ const envSchema = z.object({
   QSTASH_CURRENT_SIGNING_KEY: z.string().min(1, 'QSTASH_CURRENT_SIGNING_KEY is required'),
   QSTASH_NEXT_SIGNING_KEY: z.string().min(1, 'QSTASH_NEXT_SIGNING_KEY is required'),
   WEBHOOK_WORKER_URL: z.string().url('WEBHOOK_WORKER_URL must be an absolute URL'),
+
+  // Pagination: hard ceiling enforced by validatePagination. Adjustable per
+  // env for endpoints that need wider page sizes (e.g. /feed during backfill).
+  PAGINATION_MAX_LIMIT: z.coerce.number().int().positive().default(100),
+  PAGINATION_DEFAULT_LIMIT: z.coerce.number().int().positive().default(20),
 });
 
 const parseEnv = (): z.infer<typeof envSchema> => {
@@ -80,5 +85,9 @@ export const config = {
     currentSigningKey: env.QSTASH_CURRENT_SIGNING_KEY,
     nextSigningKey: env.QSTASH_NEXT_SIGNING_KEY,
     workerUrl: env.WEBHOOK_WORKER_URL,
+  },
+  pagination: {
+    maxLimit: env.PAGINATION_MAX_LIMIT,
+    defaultLimit: env.PAGINATION_DEFAULT_LIMIT,
   },
 } as const;

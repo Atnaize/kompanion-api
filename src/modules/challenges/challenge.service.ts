@@ -1,4 +1,4 @@
-import { prisma } from '@shared/utils/index.js';
+import { prisma, tryClaimRun, recordRunResult } from '@shared/utils/index.js';
 import type {
   Challenge,
   ChallengeTargets,
@@ -8,6 +8,7 @@ import type {
 } from '@shared/types/index.js';
 import type { Prisma } from '@prisma/client';
 import { notificationEmitter } from '../inbox/index.js';
+import { logger } from '@shared/logger/index.js';
 
 interface AddedActivityInfo {
   userId: number;
@@ -40,99 +41,96 @@ interface UpdateChallengeData {
   targets?: ChallengeTargets;
 }
 
-// Module-level debounce for completeExpiredChallenges
-let lastCompletionCheck = 0;
-const COMPLETION_CHECK_INTERVAL_MS = 60_000; // 60 seconds
+// Debounce window for the lazy `completeExpiredChallenges` sweep. Backed by
+// a Postgres-level guard (see tryClaimRun) so it survives serverless cold
+// starts and is safe across concurrent invocations.
+const COMPLETION_CHECK_INTERVAL_MS = 60_000;
+const COMPLETION_JOB_NAME = 'complete_expired_challenges';
 
 export class ChallengeService {
   /**
    * Create a new challenge
+   *
+   * The challenge row + its participants + the initial "created" event are
+   * inserted atomically — partial state (e.g. challenge with no participants
+   * because participant create failed) would corrupt downstream invariants.
+   *
+   * The retroactive activity backfill is kept OUTSIDE the transaction. It
+   * can be heavy (scans Activity by date range) and is idempotent: failing
+   * later just means the creator's pre-existing activities aren't counted
+   * yet, fixable on next sync. Keeping it inside would hold a write tx open
+   * for seconds and risk Pg statement_timeout.
    */
   async createChallenge(data: CreateChallengeData): Promise<Challenge> {
     const { invitedUserIds, ...challengeData } = data;
 
-    // Validate dates
     if (challengeData.startDate >= challengeData.endDate) {
       throw new Error('Start date must be before end date');
     }
-
-    // Validate competitive goal
     if (challengeData.type === 'competitive' && !challengeData.competitiveGoal) {
       throw new Error('Competitive challenges must have a competitive goal');
     }
-
     if (challengeData.type === 'collaborative' && challengeData.competitiveGoal) {
       throw new Error('Collaborative challenges cannot have a competitive goal');
     }
 
-    // Create challenge with participants
-    const challenge = await prisma.challenge.create({
-      data: {
-        ...challengeData,
-        status: 'active',
-        targets: challengeData.targets as Prisma.InputJsonValue,
-        participants: {
-          create: [
-            // Creator automatically accepts
-            {
-              userId: challengeData.creatorId,
-              status: 'accepted',
-              acceptedAt: new Date(),
-            },
-            // Invited users start as invited
-            ...(invitedUserIds || []).map((userId) => ({
-              userId,
-              status: 'invited' as ParticipantStatus,
-            })),
-          ],
-        },
-      },
-      include: {
-        creator: {
-          select: {
-            id: true,
-            firstname: true,
-            lastname: true,
-            profile: true,
+    const challenge = await prisma.$transaction(async (tx) => {
+      const created = await tx.challenge.create({
+        data: {
+          ...challengeData,
+          status: 'active',
+          targets: challengeData.targets as Prisma.InputJsonValue,
+          participants: {
+            create: [
+              {
+                userId: challengeData.creatorId,
+                status: 'accepted',
+                acceptedAt: new Date(),
+              },
+              ...(invitedUserIds || []).map((userId) => ({
+                userId,
+                status: 'invited' as ParticipantStatus,
+              })),
+            ],
           },
         },
-        participants: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                firstname: true,
-                lastname: true,
-                profile: true,
+        include: {
+          creator: {
+            select: { id: true, firstname: true, lastname: true, profile: true },
+          },
+          participants: {
+            include: {
+              user: {
+                select: { id: true, firstname: true, lastname: true, profile: true },
               },
             },
           },
         },
-      },
-    });
+      });
 
-    // Create event
-    await prisma.challengeEvent.create({
-      data: {
-        challengeId: challenge.id,
-        userId: challengeData.creatorId,
-        type: 'created',
+      await tx.challengeEvent.create({
         data: {
-          challengeName: challenge.name,
-          invitedCount: invitedUserIds?.length || 0,
+          challengeId: created.id,
+          userId: challengeData.creatorId,
+          type: 'created',
+          data: {
+            challengeName: created.name,
+            invitedCount: invitedUserIds?.length || 0,
+          },
         },
-      },
+      });
+
+      return created;
     });
 
-    // If challenge has already started, retroactively count activities for the creator
-    const targets = challengeData.targets;
+    // Retroactive backfill — best-effort, post-commit (see jsdoc).
     if (challengeData.startDate <= new Date()) {
       await this.countRetroactiveActivities(
         challenge.id,
         challengeData.startDate,
         challengeData.endDate,
         [challengeData.creatorId],
-        targets.activityType
+        challengeData.targets.activityType
       );
     }
 
@@ -830,28 +828,38 @@ export class ChallengeService {
    * Lazily complete expired challenges (endDate < now and still active)
    * Called before fetching challenges to ensure status is up to date
    */
-  async completeExpiredChallenges(): Promise<void> {
-    const nowMs = Date.now();
-    if (nowMs - lastCompletionCheck < COMPLETION_CHECK_INTERVAL_MS) {
-      return;
+  async completeExpiredChallenges(options?: { force?: boolean }): Promise<void> {
+    // Cross-process debounce. `force: true` bypasses it for the QStash-
+    // scheduled worker path; lazy callers from request handlers leave it off
+    // so we don't run the sweep more than once per minute across the fleet.
+    if (!options?.force) {
+      const claimed = await tryClaimRun(COMPLETION_JOB_NAME, COMPLETION_CHECK_INTERVAL_MS);
+      if (!claimed) return;
     }
-    lastCompletionCheck = nowMs;
 
     const now = new Date();
 
-    const expiredChallenges = await prisma.challenge.findMany({
-      where: {
-        status: 'active',
-        endDate: { lt: now },
-      },
-      include: {
-        participants: {
-          where: { status: 'accepted' },
+    let expiredChallenges;
+    try {
+      expiredChallenges = await prisma.challenge.findMany({
+        where: {
+          status: 'active',
+          endDate: { lt: now },
         },
-      },
-    });
+        include: {
+          participants: {
+            where: { status: 'accepted' },
+          },
+        },
+      });
+    } catch (err) {
+      await recordRunResult(COMPLETION_JOB_NAME, 'error');
+      logger.error({ err }, '[Challenge] expired-challenges query failed');
+      throw err;
+    }
 
     if (expiredChallenges.length === 0) {
+      await recordRunResult(COMPLETION_JOB_NAME, 'ok');
       return;
     }
 
@@ -901,18 +909,21 @@ export class ChallengeService {
               metadata: { challengeName: challenge.name, isSuccess },
             })
             .catch((err) =>
-              console.error(
-                `[Inbox] challenge_completed emit failed for user ${participant.userId}:`,
-                err
+              logger.error(
+                { err, userId: participant.userId, challengeId: challenge.id },
+                '[Inbox] challenge_completed emit failed'
               )
             )
         )
       );
 
-      console.info(
-        `[Challenge] Auto-completed challenge "${challenge.name}" (${challenge.id}) as ${newStatus}`
+      logger.info(
+        { challengeId: challenge.id, name: challenge.name, status: newStatus },
+        '[Challenge] auto-completed'
       );
     }
+
+    await recordRunResult(COMPLETION_JOB_NAME, 'ok');
   }
 
   /**

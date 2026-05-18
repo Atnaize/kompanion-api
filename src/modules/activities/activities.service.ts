@@ -45,10 +45,7 @@ export class ActivitiesService {
    * on purpose — non-friends should see "not found" rather than "forbidden",
    * matching the privacy model used for profile stats.
    */
-  private async resolveActivityForRead(
-    activityId: number,
-    viewer: User
-  ) {
+  private async resolveActivityForRead(activityId: number, viewer: User) {
     const dbActivity = await prisma.activity.findUnique({
       where: { id: BigInt(activityId) },
     });
