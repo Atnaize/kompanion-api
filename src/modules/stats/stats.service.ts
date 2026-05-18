@@ -1,6 +1,35 @@
 import { prisma } from '@shared/utils/index.js';
 import type { UserStats } from '@shared/types/index.js';
 import { AchievementProgressService } from '../achievements/achievement-progress.service.js';
+import {
+  METRIC_KEYS,
+  METRIC_REGISTRY,
+  startDateForPeriod,
+  type LeaderboardPeriod,
+  type MetricAggregate,
+  type MetricKey,
+} from './metric-registry.js';
+
+export interface CompareWithFriendMetric {
+  /** Metric key (matches A4 registry). */
+  key: MetricKey;
+  /** Frontend i18n key for the metric label. */
+  labelKey: string;
+  /** Already formatted (rounded) by the metric descriptor. */
+  viewer: number;
+  /** Already formatted (rounded) by the metric descriptor. */
+  other: number;
+  /** True when higher = better; lets the UI orient the delta arrow. */
+  higherIsBetter: boolean;
+}
+
+export interface CompareWithFriendResult {
+  viewerId: number;
+  otherId: number;
+  period: LeaderboardPeriod;
+  activityType: string | null;
+  metrics: CompareWithFriendMetric[];
+}
 
 export class StatsService {
   private achievementProgressService = new AchievementProgressService();
@@ -644,5 +673,87 @@ export class StatsService {
     return Array.from(grouped.entries())
       .map(([date, value]) => ({ date, value: Math.round(value) }))
       .sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  /**
+   * Side-by-side comparison between viewer and another user over the same
+   * period+activityType, returning one row per A4-registry metric. Caller
+   * (controller) is responsible for the A5 friendship gate before invoking.
+   */
+  async compareWithUser(params: {
+    viewerId: number;
+    otherId: number;
+    period: LeaderboardPeriod;
+    activityType?: string;
+  }): Promise<CompareWithFriendResult> {
+    const { viewerId, otherId, period, activityType } = params;
+    const startDate = startDateForPeriod(period);
+
+    const [viewerAggregate, otherAggregate] = await Promise.all([
+      this.aggregateForUser(viewerId, startDate, activityType),
+      this.aggregateForUser(otherId, startDate, activityType),
+    ]);
+
+    const metrics: CompareWithFriendMetric[] = METRIC_KEYS.map((key) => {
+      const descriptor = METRIC_REGISTRY[key];
+      return {
+        key,
+        labelKey: descriptor.labelKey,
+        viewer: descriptor.format(descriptor.pick(viewerAggregate)),
+        other: descriptor.format(descriptor.pick(otherAggregate)),
+        higherIsBetter: descriptor.higherIsBetter,
+      };
+    });
+
+    return {
+      viewerId,
+      otherId,
+      period,
+      activityType: activityType ?? null,
+      metrics,
+    };
+  }
+
+  private async aggregateForUser(
+    userId: number,
+    startDate: Date | null,
+    activityType?: string
+  ): Promise<MetricAggregate> {
+    const grouped = await prisma.activity.groupBy({
+      by: ['userId'],
+      where: {
+        userId,
+        ...(startDate ? { startDateLocal: { gte: startDate } } : {}),
+        ...(activityType ? { type: activityType } : {}),
+      },
+      _sum: {
+        distance: true,
+        totalElevationGain: true,
+        movingTime: true,
+      },
+      _count: { _all: true },
+      _max: { startDateLocal: true },
+    });
+
+    const row = grouped[0];
+    if (!row) {
+      return {
+        userId,
+        sumDistance: 0,
+        sumElevation: 0,
+        sumMovingTime: 0,
+        count: 0,
+        latestStartDate: null,
+      };
+    }
+
+    return {
+      userId,
+      sumDistance: row._sum.distance ?? 0,
+      sumElevation: row._sum.totalElevationGain ?? 0,
+      sumMovingTime: row._sum.movingTime ?? 0,
+      count: row._count._all,
+      latestStartDate: row._max.startDateLocal ?? null,
+    };
   }
 }

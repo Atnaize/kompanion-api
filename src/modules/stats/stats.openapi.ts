@@ -1,5 +1,6 @@
 import { z, registry } from '@shared/openapi/registry.js';
 import { commonErrors, successOf } from '@shared/openapi/schemas.js';
+import { LEADERBOARD_PERIODS } from './metric-registry.js';
 
 const tags = ['Stats'];
 const auth = [{ bearerAuth: [] as string[] }];
@@ -79,6 +80,49 @@ registry.registerPath({
       description: 'OK',
       content: { 'application/json': { schema: successOf(z.record(z.unknown())) } },
     },
+    ...commonErrors,
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/stats/compare-friend',
+  tags,
+  summary: 'Side-by-side metric comparison against a friend (M5)',
+  security: auth,
+  request: {
+    query: z.object({
+      with: z.coerce.number().int().positive(),
+      period: z.enum(LEADERBOARD_PERIODS as unknown as [string, ...string[]]).optional(),
+      activityType: z.string().optional(),
+    }),
+  },
+  responses: {
+    200: {
+      description: 'OK',
+      content: {
+        'application/json': {
+          schema: successOf(
+            z.object({
+              viewerId: z.number().int(),
+              otherId: z.number().int(),
+              period: z.string(),
+              activityType: z.string().nullable(),
+              metrics: z.array(
+                z.object({
+                  key: z.string(),
+                  labelKey: z.string(),
+                  viewer: z.number(),
+                  other: z.number(),
+                  higherIsBetter: z.boolean(),
+                })
+              ),
+            })
+          ),
+        },
+      },
+    },
+    403: { description: 'Forbidden — not friends', content: { 'application/json': { schema: z.object({ success: z.literal(false), error: z.string() }) } } },
     ...commonErrors,
   },
 });

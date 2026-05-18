@@ -1,5 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { StatsService } from './stats.service.js';
+import { FriendsService } from '../friends/friends.service.js';
+import { isLeaderboardPeriod, LEADERBOARD_PERIODS } from './metric-registry.js';
 import { HttpStatus } from '@shared/types/index.js';
 
 // Strava activity types are PascalCase strings ("Run", "Ride", "Swim",
@@ -15,6 +17,7 @@ const pluckType = (raw: unknown): string | undefined => {
 
 export class StatsController {
   private statsService = new StatsService();
+  private friendsService = new FriendsService();
 
   getUserStats = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -177,6 +180,54 @@ export class StatsController {
         success: true,
         data,
       });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  compareWithFriend = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.userId) {
+        res.status(HttpStatus.UNAUTHORIZED).json({ success: false, error: 'Not authenticated' });
+        return;
+      }
+
+      const otherIdRaw = req.query.with;
+      const otherId =
+        typeof otherIdRaw === 'string' ? Number(otherIdRaw) : Number.NaN;
+      if (!Number.isInteger(otherId) || otherId <= 0) {
+        res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          error: 'Missing or invalid "with" query parameter (target user id)',
+        });
+        return;
+      }
+
+      const period = req.query.period ?? 'month';
+      if (!isLeaderboardPeriod(period)) {
+        res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          error: `Invalid period. Must be one of: ${LEADERBOARD_PERIODS.join(', ')}`,
+        });
+        return;
+      }
+
+      // A5 — single privacy chokepoint. Throws on non-friend/non-self.
+      try {
+        await this.friendsService.assertFriendsOrSelf(req.userId, otherId);
+      } catch {
+        res.status(HttpStatus.FORBIDDEN).json({ success: false, error: 'Not friends' });
+        return;
+      }
+
+      const data = await this.statsService.compareWithUser({
+        viewerId: req.userId,
+        otherId,
+        period,
+        activityType: pluckType(req.query.activityType),
+      });
+
+      res.json({ success: true, data });
     } catch (error) {
       next(error);
     }
