@@ -3,9 +3,11 @@ import type { ChallengeParticipant, ChallengeTargets } from '@shared/types/index
 import { ChallengeService } from './challenge.service.js';
 import { feedEventEmitter } from '../feed/index.js';
 import { notificationEmitter } from '../inbox/index.js';
+import { FriendsService } from '../friends/friends.service.js';
 
 export class InvitationService {
   private challengeService = new ChallengeService();
+  private friendsService = new FriendsService();
 
   /**
    * Invite users to a challenge
@@ -27,6 +29,8 @@ export class InvitationService {
     if (challenge.status !== 'active') {
       throw new Error('Cannot invite users to completed or cancelled challenges');
     }
+
+    await this.friendsService.assertAllFriends(creatorId, userIds);
 
     // Filter out users already invited or participating
     const existingParticipants = await prisma.challengeParticipant.findMany({

@@ -158,6 +158,25 @@ export class FriendsService {
   }
 
   /**
+   * Bulk-asserts that every target is an accepted friend of the viewer. Used
+   * to gate invite-style flows (e.g. challenge invites) where the client may
+   * pick any user from search results but the rule is friends-only.
+   * The viewer themselves is silently filtered out — self-as-target is never
+   * a "stranger" case worth rejecting here.
+   */
+  async assertAllFriends(viewerId: number, targetIds: number[]): Promise<void> {
+    const others = targetIds.filter((id) => id !== viewerId);
+    if (others.length === 0) {
+      return;
+    }
+    const friendIds = new Set(await this.listFriendIds(viewerId));
+    const strangers = others.filter((id) => !friendIds.has(id));
+    if (strangers.length > 0) {
+      throw new Error('Only friends can be added to a challenge');
+    }
+  }
+
+  /**
    * Single privacy chokepoint (abstraction A5). Throws if the viewer is neither
    * the target user nor an accepted friend. Every endpoint that exposes another
    * user's data must call this.

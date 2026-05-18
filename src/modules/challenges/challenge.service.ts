@@ -8,6 +8,7 @@ import type {
 } from '@shared/types/index.js';
 import type { Prisma } from '@prisma/client';
 import { notificationEmitter } from '../inbox/index.js';
+import { FriendsService } from '../friends/friends.service.js';
 import { logger } from '@shared/logger/index.js';
 
 interface AddedActivityInfo {
@@ -48,6 +49,8 @@ const COMPLETION_CHECK_INTERVAL_MS = 60_000;
 const COMPLETION_JOB_NAME = 'complete_expired_challenges';
 
 export class ChallengeService {
+  private friendsService = new FriendsService();
+
   /**
    * Create a new challenge
    *
@@ -72,6 +75,10 @@ export class ChallengeService {
     }
     if (challengeData.type === 'collaborative' && challengeData.competitiveGoal) {
       throw new Error('Collaborative challenges cannot have a competitive goal');
+    }
+
+    if (invitedUserIds && invitedUserIds.length > 0) {
+      await this.friendsService.assertAllFriends(challengeData.creatorId, invitedUserIds);
     }
 
     const challenge = await prisma.$transaction(async (tx) => {
