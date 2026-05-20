@@ -11,6 +11,19 @@ registry.registerPath({
     query: z.object({
       cursor: z.string().optional(),
       limit: z.coerce.number().int().min(1).max(100).optional(),
+      since: z
+        .string()
+        .datetime()
+        .optional()
+        .describe('Only return events newer than this ISO 8601 timestamp (incremental polling).'),
+    }),
+    headers: z.object({
+      'if-none-match': z
+        .string()
+        .optional()
+        .describe(
+          'Conditional GET. Send the ETag from a previous response to get 304 when nothing has changed.'
+        ),
     }),
   },
   responses: {
@@ -26,6 +39,10 @@ registry.registerPath({
           ),
         },
       },
+    },
+    304: {
+      description:
+        'Not Modified — ETag matched If-None-Match. Only emitted on top-of-feed requests (no cursor).',
     },
     ...commonErrors,
   },

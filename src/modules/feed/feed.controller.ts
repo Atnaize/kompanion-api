@@ -5,8 +5,18 @@ export class FeedController {
   private feedService = new FeedService();
 
   /**
-   * GET /api/feed?cursor=<id>&limit=<n>
+   * GET /api/feed?cursor=<id>&limit=<n>&since=<ISO>
+   *
    * Cursor-paginated feed of events from the viewer's friends.
+   *
+   * Supports conditional GET via ETag — open tabs polling at the top of the
+   * feed (no cursor, no since change) get a cheap 304 when nothing has
+   * happened. The signature query is one indexed `findFirst`; only on a real
+   * change do we do the heavy `findMany` + hydration.
+   *
+   * `?since=<ISO>` is the companion incremental-load case: clients pass the
+   * timestamp of the newest event they've seen and we only return rows newer
+   * than that.
    */
   list = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -23,7 +33,36 @@ export class FeedController {
         return;
       }
 
-      const page = await this.feedService.getFeed(userId, cursor, limit);
+      let since: Date | undefined;
+      if (typeof req.query.since === 'string') {
+        const parsed = new Date(req.query.since);
+        if (isNaN(parsed.getTime())) {
+          res
+            .status(400)
+            .json({ success: false, error: 'Invalid since parameter. Use ISO 8601 format.' });
+          return;
+        }
+        since = parsed;
+      }
+
+      const { etag } = await this.feedService.computeSignature(userId);
+
+      // Always advertise the ETag so the client can use it on the next poll.
+      res.setHeader('ETag', etag);
+      res.setHeader('Cache-Control', 'private, no-cache');
+
+      // 304 only makes sense for the polling case (top of feed, no cursor).
+      // Paginated requests for older pages still need a body even when nothing
+      // new has been emitted — the cursor is what changed, not the latest event.
+      if (!cursor) {
+        const clientETag = req.headers['if-none-match'];
+        if (clientETag && clientETag === etag) {
+          res.status(304).end();
+          return;
+        }
+      }
+
+      const page = await this.feedService.getFeed(userId, cursor, limit, since);
       res.status(200).json({ success: true, data: page });
     } catch (error) {
       if (error instanceof Error) {

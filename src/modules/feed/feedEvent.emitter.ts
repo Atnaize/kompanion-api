@@ -1,5 +1,16 @@
 import { prisma } from '@shared/utils/index.js';
-import type { FeedEventPayload, FeedEventType } from './feed.types.js';
+import type { FeedEventPayload, FeedEventType, PhotoAddedMetadata } from './feed.types.js';
+
+/**
+ * Bursts of the same `photo_added` event on the same activity get collapsed
+ * into one row if they land within this window. Strava webhooks fire one
+ * event per photo upload — without debouncing, uploading 5 photos to a ride
+ * produces 5 near-identical cards. With it, the existing card's count grows.
+ *
+ * 1h is wide enough to cover a "uploading from the ride file" burst but
+ * narrow enough that a separate later upload session shows as its own card.
+ */
+const PHOTO_ADDED_DEBOUNCE_MS = 60 * 60 * 1000;
 
 /**
  * Single chokepoint for inserting FeedEvent rows.
@@ -17,8 +28,19 @@ import type { FeedEventPayload, FeedEventType } from './feed.types.js';
 class FeedEventEmitter {
   /**
    * Insert a single feed event. Returns the created row.
+   *
+   * `photo_added` is special-cased: if an existing row for the same actor +
+   * activity exists within the debounce window, we increment its count
+   * instead of creating a duplicate (see {@link PHOTO_ADDED_DEBOUNCE_MS}).
+   * We deliberately do NOT bump the original `createdAt` — the card stays in
+   * its feed position rather than jumping to the top with every photo upload.
    */
   async record(actorId: number, payload: FeedEventPayload, createdAt?: Date): Promise<void> {
+    if (payload.type === 'photo_added' && !createdAt) {
+      const merged = await this.tryMergePhotoAdded(actorId, payload.entityId, payload.metadata);
+      if (merged) return;
+    }
+
     await prisma.feedEvent.create({
       data: {
         actorId,
@@ -29,6 +51,45 @@ class FeedEventEmitter {
         ...(createdAt ? { createdAt } : {}),
       },
     });
+  }
+
+  /**
+   * If a recent `photo_added` row exists for this actor + activity, fold the
+   * new delta into it and return true. Otherwise return false so the caller
+   * inserts a fresh row.
+   *
+   * Skipped when the caller passed an explicit `createdAt` (seed scripts,
+   * backfills) — that path wants exact timestamps, not merged ones.
+   */
+  private async tryMergePhotoAdded(
+    actorId: number,
+    entityId: string,
+    incoming: PhotoAddedMetadata
+  ): Promise<boolean> {
+    const since = new Date(Date.now() - PHOTO_ADDED_DEBOUNCE_MS);
+    const existing = await prisma.feedEvent.findFirst({
+      where: {
+        actorId,
+        type: 'photo_added',
+        entityId,
+        createdAt: { gte: since },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, metadata: true },
+    });
+    if (!existing) return false;
+
+    const prevCount =
+      typeof (existing.metadata as { count?: unknown } | null)?.count === 'number'
+        ? (existing.metadata as { count: number }).count
+        : 0;
+    const nextCount = prevCount + incoming.count;
+
+    await prisma.feedEvent.update({
+      where: { id: existing.id },
+      data: { metadata: { count: nextCount } as unknown as object },
+    });
+    return true;
   }
 
   /**

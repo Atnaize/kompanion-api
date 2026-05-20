@@ -1,4 +1,6 @@
-import { prisma } from '@shared/utils/index.js';
+import crypto from 'crypto';
+import { prisma, tryClaimRun, recordRunResult } from '@shared/utils/index.js';
+import { logger } from '@shared/logger/index.js';
 import { FriendsService } from '../friends/friends.service.js';
 import type { ActivityPostedMetadata } from './feed.types.js';
 
@@ -8,6 +10,13 @@ const FEED_PAGE_SIZE_MAX = 50;
 // Stat-compare matching window (R3). Tunable.
 const COMPARE_WINDOW_DAYS = 90;
 const COMPARE_DISTANCE_TOLERANCE = 0.15; // ±15%
+
+// Retention window. Anything older is hard-deleted by the periodic purge.
+// FeedEvent is a denormalised view — old rows can be re-derived from the
+// underlying Activity / PersonalRecord / UserAchievement tables if ever needed.
+const FEED_RETENTION_DAYS = 90;
+const FEED_RETENTION_JOB_NAME = 'feed_event_retention';
+const FEED_RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 const actorSelect = {
   id: true,
@@ -119,10 +128,17 @@ export class FeedService {
   async getFeed(
     viewerId: number,
     cursor?: string,
-    limit = FEED_PAGE_SIZE_DEFAULT
+    limit = FEED_PAGE_SIZE_DEFAULT,
+    since?: Date
   ): Promise<FeedPage> {
     const clampedLimit = Math.min(Math.max(limit, 1), FEED_PAGE_SIZE_MAX);
     const friendIds = await this.friendsService.listFriendIds(viewerId);
+
+    // Fire-and-forget retention sweep. `tryClaimRun` short-circuits ~all calls
+    // (one cheap UPDATE), so this is effectively free except once per 24h.
+    this.purgeOldEvents().catch((err) => {
+      logger.error({ err }, '[Feed] retention sweep failed');
+    });
 
     if (friendIds.length === 0) {
       return { events: [], nextCursor: null };
@@ -141,11 +157,16 @@ export class FeedService {
         }
       : {};
 
+    // `?since=<ISO>` is the incremental-polling case (tab open at top of feed).
+    // Combines cleanly with cursorWhere when both are passed (rare but valid).
+    const sinceWhere = since ? { createdAt: { gt: since } } : {};
+
     // Fetch one extra row to know whether there's a next page.
     const rows = await prisma.feedEvent.findMany({
       where: {
         actorId: { in: friendIds },
         ...cursorWhere,
+        ...sinceWhere,
       },
       include: { actor: { select: actorSelect } },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -292,6 +313,87 @@ export class FeedService {
       event.compare = buildCompare(meta, best);
     }
   }
+
+  /**
+   * Cheap signature used by the controller to answer conditional GETs.
+   *
+   * Hashes `(viewerId, friendSet, latestFriendEvent)` so the ETag flips when
+   * any of those change. One small query (`findFirst` on the indexed
+   * `(actorId, createdAt)` path) — runs in front of the heavy feed query
+   * specifically so we can short-circuit to 304 before hydrating.
+   */
+  async computeSignature(viewerId: number): Promise<{ etag: string; hasFriends: boolean }> {
+    const friendIds = await this.friendsService.listFriendIds(viewerId);
+    if (friendIds.length === 0) {
+      const raw = `v1:${viewerId}:nofriends`;
+      return { etag: weakEtag(raw), hasFriends: false };
+    }
+
+    const latest = await prisma.feedEvent.findFirst({
+      where: { actorId: { in: friendIds } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { id: true, createdAt: true },
+    });
+
+    const friendsHash = crypto
+      .createHash('md5')
+      .update([...friendIds].sort((a, b) => a - b).join(','))
+      .digest('hex')
+      .slice(0, 8);
+
+    const latestPart = latest ? `${latest.createdAt.getTime()}_${latest.id.toString()}` : 'empty';
+    const raw = `v1:${viewerId}:${friendsHash}:${latestPart}`;
+    return { etag: weakEtag(raw), hasFriends: true };
+  }
+
+  /**
+   * Delete FeedEvent rows older than {@link FEED_RETENTION_DAYS}.
+   *
+   * Lazy-scheduled: called from `getFeed` on every request, but
+   * {@link tryClaimRun} ensures the actual `deleteMany` runs at most once per
+   * 24h across the fleet (Postgres-level guard, safe across serverless cold
+   * starts and concurrent invocations).
+   *
+   * Older feed events can be re-derived from the underlying Activity /
+   * PersonalRecord / UserAchievement tables if we ever need them again, so
+   * hard-delete is fine — FeedEvent is a denormalised view, not a source.
+   */
+  async purgeOldEvents(options?: { force?: boolean }): Promise<number> {
+    if (!options?.force) {
+      const claimed = await tryClaimRun(FEED_RETENTION_JOB_NAME, FEED_RETENTION_INTERVAL_MS);
+      if (!claimed) return 0;
+    }
+
+    const cutoff = new Date(Date.now() - FEED_RETENTION_DAYS * 86_400_000);
+
+    try {
+      const result = await prisma.feedEvent.deleteMany({
+        where: { createdAt: { lt: cutoff } },
+      });
+      await recordRunResult(FEED_RETENTION_JOB_NAME, 'ok');
+      if (result.count > 0) {
+        logger.info(
+          { deleted: result.count, cutoff: cutoff.toISOString() },
+          '[Feed] purged old events'
+        );
+      }
+      return result.count;
+    } catch (err) {
+      await recordRunResult(FEED_RETENTION_JOB_NAME, 'error');
+      logger.error({ err }, '[Feed] purgeOldEvents failed');
+      throw err;
+    }
+  }
+}
+
+/**
+ * Weak ETag — the body is dynamically hydrated so byte-equality isn't
+ * guaranteed even for "same logical state". Weak validators are explicitly
+ * allowed by HTTP spec for this kind of semantic-equivalence comparison.
+ */
+function weakEtag(raw: string): string {
+  const hash = crypto.createHash('md5').update(raw).digest('hex');
+  return `W/"${hash}"`;
 }
 
 function pickBestMatch(
