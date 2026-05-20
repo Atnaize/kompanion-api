@@ -66,6 +66,13 @@ export interface UserStats {
       time: number;
     };
   };
+  /**
+   * Fastest avg-speed (m/s) ever recorded per activity type, over the same
+   * window the rest of these stats cover. Populated by
+   * `AchievementProgressService.getAchievementStats`; other producers
+   * (stats.service) leave it undefined.
+   */
+  maxSpeedByActivityType?: Record<string, number>;
 }
 
 export interface ApiResponse<T = unknown> {

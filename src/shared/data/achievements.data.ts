@@ -9,7 +9,7 @@ export interface AchievementDefinition {
   description: string;
   icon: string;
   rarity: 'common' | 'rare' | 'epic' | 'legendary';
-  requirementType: 'distance' | 'elevation' | 'activities' | 'speed' | 'streak';
+  requirementType: 'distance' | 'elevation' | 'activities' | 'speed' | 'streak' | 'variety';
   requirementValue: number;
   activityType?: string;
   isSecret?: boolean;
@@ -196,5 +196,64 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     requirementType: 'elevation',
     requirementValue: 6666,
     isSecret: true,
+  },
+
+  // Speed Achievements (require an activity type — see speed-case in
+  // AchievementsService.isAchievementUnlocked).
+  {
+    id: 'speed-demon-run',
+    name: 'Speed Demon',
+    description: 'Hit 4 m/s (~15 km/h) average pace on a run',
+    icon: '⚡',
+    rarity: 'epic',
+    requirementType: 'speed',
+    requirementValue: 4.0, // m/s
+    activityType: 'Run',
+  },
+  {
+    id: 'tour-pace',
+    name: 'Tour Pace',
+    description: 'Hit 10 m/s (~36 km/h) average speed on a ride',
+    icon: '🚴',
+    rarity: 'epic',
+    requirementType: 'speed',
+    requirementValue: 10.0, // m/s
+    activityType: 'Ride',
+  },
+
+  // Variety Achievements — reward cross-training.
+  {
+    id: 'jack-of-all-trades',
+    name: 'Jack of All Trades',
+    description: 'Try 5 different activity types',
+    icon: '🎭',
+    rarity: 'rare',
+    requirementType: 'variety',
+    requirementValue: 5,
+  },
+
+  // Seasonal Achievements — windowed via validFrom/validUntil, checked
+  // against in-window stats (see pickStats in AchievementsService).
+  {
+    id: 'summer-solstice-2026',
+    name: 'Summer Solstice Hunter',
+    description: 'Cover 500 km between June 21 and September 22, 2026',
+    icon: '☀️',
+    rarity: 'rare',
+    requirementType: 'distance',
+    requirementValue: 500_000,
+    validFrom: new Date('2026-06-21T00:00:00Z'),
+    validUntil: new Date('2026-09-22T23:59:59Z'),
+  },
+  {
+    id: 'winter-warrior-2026',
+    name: 'Winter Warrior',
+    description: 'Complete 20 activities between Dec 2026 and Feb 2027',
+    icon: '❄️',
+    rarity: 'epic',
+    requirementType: 'activities',
+    requirementValue: 20,
+    validFrom: new Date('2026-12-01T00:00:00Z'),
+    validUntil: new Date('2027-02-28T23:59:59Z'),
   },
 ];

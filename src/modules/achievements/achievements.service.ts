@@ -3,6 +3,7 @@ import { AchievementProgressService } from './achievement-progress.service.js';
 import { feedEventEmitter } from '../feed/index.js';
 import { notificationEmitter } from '../inbox/index.js';
 import type { Achievement, UserStats } from '@shared/types/index.js';
+import type { Achievement as PrismaAchievement } from '@prisma/client';
 
 export class AchievementsService {
   private achievementProgressService = new AchievementProgressService();
@@ -52,13 +53,22 @@ export class AchievementsService {
 
     const progressMap = new Map(progressRecords.map((p) => [p.achievementId, p]));
 
-    // Get user stats (filtered by achievementStartDate) to check which are redeemable
-    const userStats = await this.achievementProgressService.getAchievementStats(userId);
+    // Lifetime stats — shared by all non-seasonal achievements.
+    const defaultStats = await this.achievementProgressService.getAchievementStats(userId);
+
+    // Seasonal achievements need window-restricted stats (otherwise a
+    // high-mileage user instantly satisfies "Summer 500K" on day 1). Cache
+    // by `(validFrom, validUntil)` so achievements sharing a window only
+    // re-query the DB once.
+    const windowCache = new Map<string, UserStats>();
+    const statsForEach = await Promise.all(
+      allAchievements.map((a) => this.pickStats(userId, a, defaultStats, windowCache))
+    );
 
     // Map to Achievement type with status
-    return allAchievements.map((achievement) => {
+    return allAchievements.map((achievement, idx) => {
       const isUnlocked = unlockedMap.has(achievement.id);
-      const meetsRequirements = this.isAchievementUnlocked(achievement, userStats);
+      const meetsRequirements = this.isAchievementUnlocked(achievement, statsForEach[idx]);
       const isRedeemable = !isUnlocked && meetsRequirements;
       const isSecret = achievement.isSecret && !isUnlocked;
 
@@ -95,26 +105,11 @@ export class AchievementsService {
    * Get only redeemable achievements (not yet unlocked but requirements met)
    */
   async getRedeemableAchievements(userId: number): Promise<Achievement[]> {
+    // `getUserAchievements` already computed `isRedeemable` per achievement
+    // using the right (window-aware) stats — just filter on that flag rather
+    // than re-running the requirement check here with the wrong stats.
     const allAchievements = await this.getUserAchievements(userId);
-
-    // Get user stats (filtered by achievementStartDate)
-    const userStats = await this.achievementProgressService.getAchievementStats(userId);
-
-    return allAchievements.filter((achievement) => {
-      const isUnlocked = !!achievement.unlockedAt;
-      if (isUnlocked) {
-        return false; // Already unlocked
-      }
-
-      // Check if meets requirements
-      const dbAchievement = {
-        requirementType: achievement.requirement.type,
-        requirementValue: achievement.requirement.value,
-        activityType: achievement.requirement.activityType || null,
-      };
-
-      return this.isAchievementUnlocked(dbAchievement, userStats);
-    });
+    return allAchievements.filter((a) => a.isRedeemable);
   }
 
   /**
@@ -155,8 +150,17 @@ export class AchievementsService {
       throw new Error('Achievement already unlocked');
     }
 
-    // Check if user meets requirements (filtered by achievementStartDate)
-    const userStats = await this.achievementProgressService.getAchievementStats(userId);
+    // For seasonals, requirements are computed against the in-window stats —
+    // otherwise an old account with a high lifetime total could redeem a
+    // seasonal target without ever moving during the window.
+    const userStats =
+      achievement.validFrom || achievement.validUntil
+        ? await this.achievementProgressService.getAchievementStats(
+            userId,
+            achievement.validFrom ?? undefined,
+            achievement.validUntil ?? undefined
+          )
+        : await this.achievementProgressService.getAchievementStats(userId);
 
     if (!this.isAchievementUnlocked(achievement, userStats)) {
       throw new Error('Achievement requirements not met');
@@ -263,12 +267,47 @@ export class AchievementsService {
         return stats.currentStreak >= achievement.requirementValue;
 
       case 'speed':
-        // TODO: Implement speed achievements
-        // Need to query activities for max average speed
-        return false;
+        // Speed achievements require an activity type — comparing m/s across
+        // disciplines (a 4 m/s run vs. a 10 m/s ride) is meaningless.
+        if (!achievement.activityType) return false;
+        return (
+          (stats.maxSpeedByActivityType?.[achievement.activityType] ?? 0) >=
+          achievement.requirementValue
+        );
+
+      case 'variety':
+        // Count of distinct activity types the user has logged in this window.
+        return Object.keys(stats.byActivityType).length >= achievement.requirementValue;
 
       default:
         return false;
     }
+  }
+
+  /**
+   * Resolve the right stats window for one achievement, caching window
+   * queries so multiple seasonals sharing the same window only hit the DB
+   * once. Lifetime achievements all share the pre-computed `defaultStats`.
+   */
+  private async pickStats(
+    userId: number,
+    achievement: Pick<PrismaAchievement, 'validFrom' | 'validUntil'>,
+    defaultStats: UserStats,
+    cache: Map<string, UserStats>
+  ): Promise<UserStats> {
+    if (!achievement.validFrom && !achievement.validUntil) {
+      return defaultStats;
+    }
+    const key = `${achievement.validFrom?.getTime() ?? 'n'}_${achievement.validUntil?.getTime() ?? 'n'}`;
+    let stats = cache.get(key);
+    if (!stats) {
+      stats = await this.achievementProgressService.getAchievementStats(
+        userId,
+        achievement.validFrom ?? undefined,
+        achievement.validUntil ?? undefined
+      );
+      cache.set(key, stats);
+    }
+    return stats;
   }
 }

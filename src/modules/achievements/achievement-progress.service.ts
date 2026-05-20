@@ -33,25 +33,40 @@ export async function upsertProgress(input: ProgressInput): Promise<void> {
 
 export class AchievementProgressService {
   /**
-   * Get stats based on activities since achievementStartDate (for achievements only)
+   * Get stats based on activities within an optional window.
+   *
+   * Default window (no args): everything since `User.achievementStartDate`
+   * (falls back to `createdAt`). Used for lifetime achievements.
+   *
+   * Bounded window (`since` / `until` set): stats restricted to that range.
+   * Used for time-windowed (seasonal) achievements — without it, a
+   * high-mileage user would auto-unlock "Summer 500K" on day 1 of summer
+   * just because their lifetime distance already exceeds the target.
+   *
+   * Also populates `maxSpeedByActivityType` over the same window, used by
+   * `speed`-type achievement checks.
    */
-  async getAchievementStats(userId: number): Promise<UserStats> {
-    // Get user's achievement start date
-    const user = await prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-      select: { achievementStartDate: true, createdAt: true },
-    });
+  async getAchievementStats(userId: number, since?: Date, until?: Date): Promise<UserStats> {
+    let startDate: Date;
+    if (since !== undefined) {
+      startDate = since;
+    } else {
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { achievementStartDate: true, createdAt: true },
+      });
+      startDate = user.achievementStartDate || user.createdAt;
+    }
 
-    // Use achievementStartDate if set, otherwise fall back to createdAt
-    const startDate = user.achievementStartDate || user.createdAt;
+    const dateFilter: { gte: Date; lte?: Date } = { gte: startDate };
+    if (until !== undefined) {
+      dateFilter.lte = until;
+    }
 
-    // Get activities for achievement tracking (only since achievementStartDate)
     const activities = await prisma.activity.findMany({
       where: {
         userId,
-        startDateLocal: {
-          gte: startDate,
-        },
+        startDateLocal: dateFilter,
       },
       orderBy: { startDate: 'asc' },
     });
@@ -64,6 +79,7 @@ export class AchievementProgressService {
 
     // Calculate by activity type
     const byActivityType: UserStats['byActivityType'] = {};
+    const maxSpeedByActivityType: Record<string, number> = {};
 
     for (const activity of activities) {
       if (!byActivityType[activity.type]) {
@@ -73,12 +89,17 @@ export class AchievementProgressService {
           elevation: 0,
           time: 0,
         };
+        maxSpeedByActivityType[activity.type] = 0;
       }
 
       byActivityType[activity.type].count += 1;
       byActivityType[activity.type].distance += activity.distance;
       byActivityType[activity.type].elevation += activity.totalElevationGain;
       byActivityType[activity.type].time += activity.movingTime;
+
+      if (activity.averageSpeed > maxSpeedByActivityType[activity.type]) {
+        maxSpeedByActivityType[activity.type] = activity.averageSpeed;
+      }
     }
 
     // Calculate current streak
@@ -94,17 +115,46 @@ export class AchievementProgressService {
       currentStreak,
       longestStreak: 0, // Not needed for achievements
       byActivityType,
+      maxSpeedByActivityType,
     };
   }
 
   /**
-   * Update progress for all achievements based on activities since achievementStartDate
+   * Pick the right stats window for a given achievement.
+   *
+   * Seasonal achievements (with `validFrom`/`validUntil`) compute their own
+   * window-restricted stats. Lifetime achievements share a single default
+   * stats object — pass it in via `defaultStats` to avoid re-querying the
+   * full activity history per achievement.
+   */
+  async statsForAchievement(
+    userId: number,
+    achievement: { validFrom: Date | null; validUntil: Date | null },
+    defaultStats: UserStats
+  ): Promise<UserStats> {
+    if (!achievement.validFrom && !achievement.validUntil) {
+      return defaultStats;
+    }
+    return this.getAchievementStats(
+      userId,
+      achievement.validFrom ?? undefined,
+      achievement.validUntil ?? undefined
+    );
+  }
+
+  /**
+   * Update progress for all achievements.
+   *
+   * Lifetime achievements share the default stats (activities since
+   * `achievementStartDate`). Seasonal achievements get their own
+   * window-restricted stats so the progress bar reflects in-window progress,
+   * not lifetime totals (otherwise a seasonal would always show 100%
+   * immediately for any user who's already past the lifetime target).
    */
   async updateAllProgress(userId: number): Promise<void> {
-    // Get filtered stats (only activities since achievementStartDate)
-    const stats = await this.getAchievementStats(userId);
+    const defaultStats = await this.getAchievementStats(userId);
+    const windowCache = new Map<string, UserStats>();
 
-    // Update achievement progress for each achievement
     const achievements = await prisma.achievement.findMany();
 
     for (const achievement of achievements) {
@@ -115,6 +165,23 @@ export class AchievementProgressService {
 
       if (unlocked) {
         continue;
+      }
+
+      let stats: UserStats;
+      if (achievement.validFrom || achievement.validUntil) {
+        const key = `${achievement.validFrom?.getTime() ?? 'n'}_${achievement.validUntil?.getTime() ?? 'n'}`;
+        let cached = windowCache.get(key);
+        if (!cached) {
+          cached = await this.getAchievementStats(
+            userId,
+            achievement.validFrom ?? undefined,
+            achievement.validUntil ?? undefined
+          );
+          windowCache.set(key, cached);
+        }
+        stats = cached;
+      } else {
+        stats = defaultStats;
       }
 
       const currentValue = this.getCurrentValue(achievement, stats);
@@ -196,6 +263,14 @@ export class AchievementProgressService {
           : stats.totalElevation;
       case 'streak':
         return stats.currentStreak;
+      case 'speed':
+        // Only meaningful with an activity type — m/s comparison across types
+        // (running vs. cycling) would always be won by cycling.
+        return achievement.activityType
+          ? (stats.maxSpeedByActivityType?.[achievement.activityType] ?? 0)
+          : 0;
+      case 'variety':
+        return Object.keys(stats.byActivityType).length;
       default:
         return 0;
     }

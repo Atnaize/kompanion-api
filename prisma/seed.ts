@@ -81,6 +81,8 @@ async function seedAchievements(): Promise<void> {
         requirementValue: achievement.requirementValue,
         activityType: achievement.activityType,
         isSecret: achievement.isSecret || false,
+        validFrom: achievement.validFrom ?? null,
+        validUntil: achievement.validUntil ?? null,
       },
       update: {
         name: achievement.name,
@@ -91,6 +93,8 @@ async function seedAchievements(): Promise<void> {
         requirementValue: achievement.requirementValue,
         activityType: achievement.activityType,
         isSecret: achievement.isSecret || false,
+        validFrom: achievement.validFrom ?? null,
+        validUntil: achievement.validUntil ?? null,
       },
     });
 
