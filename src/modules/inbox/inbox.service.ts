@@ -1,4 +1,5 @@
 import { prisma } from '@shared/utils/index.js';
+import { privacyService } from '../privacy/index.js';
 
 const PAGE_SIZE_DEFAULT = 20;
 const PAGE_SIZE_MAX = 50;
@@ -50,9 +51,17 @@ export class InboxService {
       }
     }
 
+    // Hide notifications whose actor the viewer has since blocked (or who has
+    // blocked the viewer). Mute does NOT apply — direct notifications survive
+    // mute; only the feed and leaderboards are muted.
+    const blocked = await privacyService.getHiddenIds(userId, { includeMutes: false });
+
     const rows = await prisma.notification.findMany({
       where: {
         userId,
+        ...(blocked.size > 0
+          ? { OR: [{ actorId: null }, { actorId: { notIn: [...blocked] } }] }
+          : {}),
         ...(cursorBigInt !== undefined ? { id: { lt: cursorBigInt } } : {}),
       },
       include: { actor: { select: actorSelect } },
@@ -85,8 +94,15 @@ export class InboxService {
    * Unread count — drives the bubble in `useTabBadges`.
    */
   async unreadCount(userId: number): Promise<number> {
+    const blocked = await privacyService.getHiddenIds(userId, { includeMutes: false });
     return prisma.notification.count({
-      where: { userId, readAt: null },
+      where: {
+        userId,
+        readAt: null,
+        ...(blocked.size > 0
+          ? { OR: [{ actorId: null }, { actorId: { notIn: [...blocked] } }] }
+          : {}),
+      },
     });
   }
 

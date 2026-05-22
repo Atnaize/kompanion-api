@@ -1,6 +1,7 @@
 import { prisma } from '@shared/utils/index.js';
 import type { Friendship, FriendshipStatus, Prisma } from '@prisma/client';
 import { notificationEmitter } from '../inbox/index.js';
+import { privacyService } from '../privacy/index.js';
 
 /**
  * One-shot view of a relationship between the current viewer and another user.
@@ -68,8 +69,14 @@ export class FriendsService {
 
     const normalizedQuery = normalizeForSearch(query);
 
+    // Search excludes blocked-either-direction. Mutes are NOT applied here —
+    // muted users stay searchable so the viewer can find and unmute them.
+    const blocked = await privacyService.getHiddenIds(currentUserId, { includeMutes: false });
+
     const users = await prisma.user.findMany({
-      where: { id: { not: currentUserId } },
+      where: {
+        id: { not: currentUserId, notIn: [...blocked] },
+      },
       select: userPublicSelect,
     });
 
@@ -145,8 +152,27 @@ export class FriendsService {
   /**
    * Returns the IDs of the viewer's accepted friends. Used by feed,
    * leaderboards, and any other "friends-only" query.
+   *
+   * Privacy: hides users the viewer has blocked, users who have blocked the
+   * viewer, AND users the viewer has muted. Mutes are included because every
+   * caller of this method (feed, leaderboards, challenge invite picker) is a
+   * surface where mute should hide. Callers that need to bypass mutes can call
+   * `listFriendIdsRaw` instead.
    */
   async listFriendIds(userId: number): Promise<number[]> {
+    const [rows, hidden] = await Promise.all([
+      this.listFriendIdsRaw(userId),
+      privacyService.getHiddenIds(userId, { includeMutes: true }),
+    ]);
+    return rows.filter((id) => !hidden.has(id));
+  }
+
+  /**
+   * Same as `listFriendIds` but WITHOUT applying block/mute filters. Use only
+   * where the viewer must be able to see all their accepted relationships
+   * (e.g. settings UIs that need the raw graph).
+   */
+  async listFriendIdsRaw(userId: number): Promise<number[]> {
     const rows = await prisma.friendship.findMany({
       where: {
         status: 'ACCEPTED',
@@ -217,6 +243,10 @@ export class FriendsService {
       select: { id: true },
     });
     if (!addressee) {
+      throw new Error('User not found');
+    }
+    if (await privacyService.isBlockedEitherWay(requesterId, addresseeId)) {
+      // Don't leak block direction — both sides see "User not found"-ish errors.
       throw new Error('User not found');
     }
 
@@ -374,6 +404,9 @@ export class FriendsService {
   }
 
   async getFriends(userId: number): Promise<UserPublic[]> {
+    // Block hides; mute does NOT. Muted users still appear in the friends list
+    // so the viewer can find them to unmute / interact directly.
+    const blocked = await privacyService.getHiddenIds(userId, { includeMutes: false });
     const rows = await prisma.friendship.findMany({
       where: {
         status: 'ACCEPTED',
@@ -385,10 +418,13 @@ export class FriendsService {
       },
       orderBy: { acceptedAt: 'desc' },
     });
-    return rows.map((row) => (row.requesterId === userId ? row.addressee : row.requester));
+    return rows
+      .map((row) => (row.requesterId === userId ? row.addressee : row.requester))
+      .filter((u) => !blocked.has(u.id));
   }
 
   async getIncomingRequests(userId: number): Promise<FriendshipWithUsers[]> {
+    const blocked = await privacyService.getHiddenIds(userId, { includeMutes: false });
     const rows = await prisma.friendship.findMany({
       where: { addresseeId: userId, status: 'PENDING' },
       include: {
@@ -397,10 +433,11 @@ export class FriendsService {
       },
       orderBy: { createdAt: 'desc' },
     });
-    return rows;
+    return rows.filter((r) => !blocked.has(r.requesterId));
   }
 
   async getOutgoingRequests(userId: number): Promise<FriendshipWithUsers[]> {
+    const blocked = await privacyService.getHiddenIds(userId, { includeMutes: false });
     const rows = await prisma.friendship.findMany({
       where: { requesterId: userId, status: 'PENDING' },
       include: {
@@ -409,7 +446,7 @@ export class FriendsService {
       },
       orderBy: { createdAt: 'desc' },
     });
-    return rows;
+    return rows.filter((r) => !blocked.has(r.addresseeId));
   }
 
   private rowToState(viewerId: number, row: Friendship | null): FriendshipState {

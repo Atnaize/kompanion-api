@@ -56,6 +56,10 @@ model User {
   feedEvents              FeedEvent[]
   notifications           Notification[] @relation("NotificationRecipient")
   notificationsCaused     Notification[] @relation("NotificationActor")
+  blocksIssued            UserBlock[] @relation("UserBlockBlocker")
+  blocksReceived          UserBlock[] @relation("UserBlockBlocked")
+  mutesIssued             UserMute[]  @relation("UserMuteMuter")
+  mutesReceived           UserMute[]  @relation("UserMuteMuted")
 
   @@index([stravaId])
   @@map("users")
@@ -131,6 +135,42 @@ model Friendship {
   @@index([addresseeId, status])
   @@index([requesterId, status])
   @@map("friendships")
+}
+
+// UserBlock - hard, bidirectional invisibility between two users.
+// When A blocks B: neither sees the other in search, feed, leaderboards, requests
+// or notifications. Existing friendship is dropped, pending requests deleted, and
+// shared challenges marked left for the blocker. Asymmetric row (blockerId is
+// the one who took the action), but the visibility check treats it as bidirectional.
+model UserBlock {
+  id         Int      @id @default(autoincrement())
+  blockerId  Int
+  blockedId  Int
+  createdAt  DateTime @default(now())
+
+  blocker    User @relation("UserBlockBlocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked    User @relation("UserBlockBlocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  // "Has anyone blocked me?" — used to expand the hidden-set during filter fan-out.
+  @@index([blockedId])
+  @@map("user_blocks")
+}
+
+// UserMute - one-way, soft hide. A mutes B: A's feed/leaderboards/chat don't
+// show B's events, but friendship stays intact and B is unaffected. No
+// notifications are suppressed (muting != blocking).
+model UserMute {
+  id         Int      @id @default(autoincrement())
+  muterId    Int
+  mutedId    Int
+  createdAt  DateTime @default(now())
+
+  muter      User @relation("UserMuteMuter", fields: [muterId], references: [id], onDelete: Cascade)
+  muted      User @relation("UserMuteMuted", fields: [mutedId], references: [id], onDelete: Cascade)
+
+  @@unique([muterId, mutedId])
+  @@map("user_mutes")
 }
 
 // Activity model - Strava activities

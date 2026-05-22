@@ -1,6 +1,7 @@
 import { prisma } from '@shared/utils/index.js';
 import type { NotificationPreference } from '@prisma/client';
 import { NotificationsService, type PushPayload } from '../notifications/index.js';
+import { privacyService } from '../privacy/index.js';
 import type { NotificationPayload } from './inbox.types.js';
 
 /**
@@ -29,6 +30,15 @@ class NotificationEmitter {
     payload: NotificationPayload,
     options?: { actorId?: number }
   ): Promise<void> {
+    // Privacy: suppress when actor and recipient have a block in either direction.
+    // Mute is intentionally NOT applied — mute hides activity from feeds, not
+    // direct notifications like "X invited you to a challenge".
+    if (options?.actorId && options.actorId !== userId) {
+      if (await privacyService.isBlockedEitherWay(userId, options.actorId)) {
+        return;
+      }
+    }
+
     await prisma.notification.create({
       data: {
         userId,
