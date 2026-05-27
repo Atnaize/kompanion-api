@@ -47,15 +47,22 @@ export class LeaderboardsController {
         return;
       }
 
+      const clubId = typeof req.query.clubId === 'string' ? req.query.clubId : undefined;
+
       const data = await this.leaderboardsService.getFriendsLeaderboard({
         viewerId: req.userId,
         metric,
         period,
         activityType: pluckType(req.query.activityType),
+        clubId,
       });
 
       res.json({ success: true, data });
     } catch (error) {
+      if (error instanceof Error && error.message.startsWith('FORBIDDEN')) {
+        res.status(HttpStatus.FORBIDDEN).json({ success: false, error: error.message });
+        return;
+      }
       next(error);
     }
   };

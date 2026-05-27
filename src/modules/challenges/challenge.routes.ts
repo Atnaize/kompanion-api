@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { ChallengeController } from './challenge.controller.js';
 import { InvitationController } from './invitation.controller.js';
 import { EventsController } from './events.controller.js';
+import { chatController } from '../chat/index.js';
 import { requireAuth } from '@shared/middleware/index.js';
 
 const router = Router();
@@ -40,5 +41,10 @@ router.post('/:id/leave', requireAuth, invitationController.leaveChallenge);
 
 // Challenge events
 router.get('/:id/events', requireAuth, eventsController.getChallengeEvents);
+
+// Chat lookup: returns the conversation summary (id + scope name) for this
+// challenge. Lazy-creates the row on first access. Clients then talk to
+// /api/conversations/:id/* for everything else.
+router.get('/:id/conversation', requireAuth, chatController.resolveChallenge);
 
 export default router;

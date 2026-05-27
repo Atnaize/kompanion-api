@@ -16,6 +16,7 @@ const createChallengeSchema = z.object({
   }),
   competitiveGoal: z.enum(['most', 'least', 'exact']).optional(),
   invitedUserIds: z.array(z.number()).optional(),
+  clubId: z.string().uuid().optional(),
 });
 
 const updateChallengeSchema = z.object({
@@ -70,6 +71,7 @@ export class ChallengeController {
         targets: validatedData.targets,
         competitiveGoal: validatedData.competitiveGoal as CompetitiveGoal | undefined,
         invitedUserIds: validatedData.invitedUserIds,
+        clubId: validatedData.clubId,
       });
 
       res.status(201).json({ success: true, data: challenge });
@@ -80,7 +82,8 @@ export class ChallengeController {
       }
 
       if (error instanceof Error) {
-        res.status(400).json({ success: false, error: error.message });
+        const status = error.message.startsWith('FORBIDDEN') ? 403 : 400;
+        res.status(status).json({ success: false, error: error.message });
         return;
       }
 
@@ -102,15 +105,20 @@ export class ChallengeController {
         return;
       }
 
-      const { status, type } = req.query;
+      const { status, type, clubId } = req.query;
 
       const challenges = await this.challengeService.getChallengesForUser(userId, {
         status: status as string | undefined,
         type: type as ChallengeType | undefined,
+        clubId: typeof clubId === 'string' ? clubId : undefined,
       });
 
       res.status(200).json({ success: true, data: challenges });
     } catch (error) {
+      if (error instanceof Error && error.message.startsWith('FORBIDDEN')) {
+        res.status(403).json({ success: false, error: error.message });
+        return;
+      }
       console.error('[Challenge Controller] Get challenges error:', error);
       res.status(500).json({ success: false, error: 'Internal server error' });
     }

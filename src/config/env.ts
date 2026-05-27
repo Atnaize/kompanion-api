@@ -38,6 +38,11 @@ const envSchema = z.object({
   // env for endpoints that need wider page sizes (e.g. /feed during backfill).
   PAGINATION_MAX_LIMIT: z.coerce.number().int().positive().default(100),
   PAGINATION_DEFAULT_LIMIT: z.coerce.number().int().positive().default(20),
+
+  // Realtime chat (Ably). Optional: when unset, publishing is a no-op and the
+  // client falls back to polling. The browser never sees this key — it mints
+  // short-lived, capability-scoped tokens via POST /api/realtime/token.
+  ABLY_API_KEY: z.string().min(1).optional(),
 });
 
 const parseEnv = (): z.infer<typeof envSchema> => {
@@ -89,5 +94,9 @@ export const config = {
   pagination: {
     maxLimit: env.PAGINATION_MAX_LIMIT,
     defaultLimit: env.PAGINATION_DEFAULT_LIMIT,
+  },
+  realtime: {
+    ablyApiKey: env.ABLY_API_KEY ?? null,
+    enabled: !!env.ABLY_API_KEY,
   },
 } as const;

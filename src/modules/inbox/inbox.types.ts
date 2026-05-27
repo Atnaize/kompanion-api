@@ -13,7 +13,12 @@ export type NotificationType =
   | 'challenge_progress' // a milestone was reached in a challenge I'm in
   | 'challenge_activity_added' // another participant logged activities in a shared challenge
   | 'challenge_cancelled' // the creator cancelled a challenge I'm in
-  | 'challenge_completed'; // a challenge I'm in ended (succeeded or failed)
+  | 'challenge_completed' // a challenge I'm in ended (succeeded or failed)
+  | 'chat_message' // someone sent a text message in a conversation I'm in
+  | 'chat_mention' // someone @'d me in chat (bypasses per-conversation mute)
+  | 'chat_reaction' // someone reacted to a message I authored (or contributed to, for digests)
+  | 'chat_reply' // someone replied to a message I authored (or contributed to)
+  | 'club_invite'; // someone invited me to a club
 
 export interface FriendRequestMetadata {
   actorName: string;
@@ -58,6 +63,55 @@ export interface ChallengeCancelledMetadata {
 export interface ChallengeCompletedMetadata {
   challengeName: string;
   isSuccess: boolean;
+}
+
+export interface ClubInviteMetadata {
+  clubName: string;
+  inviterName: string;
+}
+
+// Scope label rendered into the push title ("Morning Riders chat", "Spring 5K
+// challenge", "@Bob"). Lets the chat notification types stay scope-agnostic
+// while still showing a useful header on the device.
+export type ChatScopeKind = 'club' | 'challenge' | 'dm';
+
+export interface ChatMessageMetadata {
+  /** Display title — club/challenge name, or sender name for DMs. */
+  scopeName: string;
+  scopeKind: ChatScopeKind;
+  conversationId: string;
+  senderName: string;
+  /** Truncated body for the push body line. Full message lives in the chat. */
+  preview: string;
+}
+
+export interface ChatMentionMetadata {
+  scopeName: string;
+  scopeKind: ChatScopeKind;
+  conversationId: string;
+  senderName: string;
+  preview: string;
+}
+
+export interface ChatReactionMetadata {
+  scopeName: string;
+  scopeKind: ChatScopeKind;
+  conversationId: string;
+  /** Who reacted. */
+  actorName: string;
+  emoji: string;
+  /** Preview of the message that was reacted to. */
+  messagePreview: string;
+}
+
+export interface ChatReplyMetadata {
+  scopeName: string;
+  scopeKind: ChatScopeKind;
+  conversationId: string;
+  /** Who replied. */
+  actorName: string;
+  /** Preview of the reply body. */
+  preview: string;
 }
 
 export type NotificationPayload =
@@ -113,5 +167,39 @@ export type NotificationPayload =
       type: 'challenge_completed';
       metadata: ChallengeCompletedMetadata;
       entityType: 'challenge';
+      entityId: string;
+    }
+  | {
+      type: 'club_invite';
+      metadata: ClubInviteMetadata;
+      entityType: 'club';
+      entityId: string;
+    }
+  | {
+      type: 'chat_message';
+      metadata: ChatMessageMetadata;
+      // entityId is the conversationId so the inbox row can deep-link straight
+      // into the chat regardless of scope (challenge vs club vs dm).
+      entityType: 'conversation';
+      entityId: string;
+    }
+  | {
+      type: 'chat_mention';
+      metadata: ChatMentionMetadata;
+      entityType: 'conversation';
+      entityId: string;
+    }
+  | {
+      type: 'chat_reaction';
+      metadata: ChatReactionMetadata;
+      // entityId is the messageId (the thing that was reacted to).
+      entityType: 'message';
+      entityId: string;
+    }
+  | {
+      type: 'chat_reply';
+      metadata: ChatReplyMetadata;
+      // entityId is the parent messageId (the thing that was replied to).
+      entityType: 'message';
       entityId: string;
     };

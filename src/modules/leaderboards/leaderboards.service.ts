@@ -57,10 +57,14 @@ export class LeaderboardsService {
     metric: MetricKey;
     period: LeaderboardPeriod;
     activityType?: string;
+    /** Optional club scope: limit the cohort to that club's active members. */
+    clubId?: string;
   }): Promise<FriendsLeaderboardResult> {
-    const { viewerId, metric, period, activityType } = params;
-    const friendIds = await this.friendsService.listFriendIds(viewerId);
-    const userIds = Array.from(new Set([viewerId, ...friendIds]));
+    const { viewerId, metric, period, activityType, clubId } = params;
+    const cohortIds = clubId
+      ? await this.listClubMemberIds(viewerId, clubId)
+      : await this.friendsService.listFriendIds(viewerId);
+    const userIds = Array.from(new Set([viewerId, ...cohortIds]));
 
     const startDate = startDateForPeriod(period);
 
@@ -113,7 +117,10 @@ export class LeaderboardsService {
           value: descriptor.format(descriptor.pick(aggregate)),
         };
       })
-      .filter((entry): entry is { user: LeaderboardRowUser; aggregate: MetricAggregate; value: number } => entry !== null)
+      .filter(
+        (entry): entry is { user: LeaderboardRowUser; aggregate: MetricAggregate; value: number } =>
+          entry !== null
+      )
       .sort((a, b) => {
         if (b.value !== a.value) {
           return descriptor.higherIsBetter ? b.value - a.value : a.value - b.value;
@@ -139,6 +146,26 @@ export class LeaderboardsService {
       activityType: activityType ?? null,
       rows,
     };
+  }
+
+  /**
+   * Active club members the viewer is allowed to compete with. Throws
+   * FORBIDDEN if the viewer isn't an active member of the club. Includes the
+   * viewer's own ID so they always appear in the leaderboard.
+   */
+  private async listClubMemberIds(viewerId: number, clubId: string): Promise<number[]> {
+    const membership = await prisma.clubMember.findUnique({
+      where: { clubId_userId: { clubId, userId: viewerId } },
+      select: { status: true },
+    });
+    if (!membership || membership.status !== 'active') {
+      throw new Error('FORBIDDEN: not a club member');
+    }
+    const rows = await prisma.clubMember.findMany({
+      where: { clubId, status: 'active' },
+      select: { userId: true },
+    });
+    return rows.map((r) => r.userId);
   }
 }
 

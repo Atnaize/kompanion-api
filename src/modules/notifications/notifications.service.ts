@@ -9,6 +9,12 @@ export interface PushPayload {
   body: string;
   icon?: string;
   badge?: string;
+  /**
+   * Notification tag used by the service worker to collapse multiple
+   * notifications into one banner. The SW prefers `tag` over `data.type` so
+   * we can route per-entity (e.g. `challenge:<id>`) instead of per-type.
+   */
+  tag?: string;
   data?: Record<string, unknown>;
 }
 

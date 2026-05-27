@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { prisma, tryClaimRun, recordRunResult } from '@shared/utils/index.js';
 import { logger } from '@shared/logger/index.js';
-import { FriendsService } from '../friends/friends.service.js';
+import type { FeedScope } from './feed.scopes.js';
 import type { ActivityPostedMetadata } from './feed.types.js';
 
 const FEED_PAGE_SIZE_DEFAULT = 20;
@@ -112,12 +112,11 @@ interface ViewerActivity {
 }
 
 export class FeedService {
-  private friendsService = new FriendsService();
-
   /**
-   * Return a page of feed events for the viewer. Events are filtered to the
-   * viewer's friend graph (mutual accepted) and ordered by **event date**
-   * (newest first) — NOT by row id, which would expose insertion order.
+   * Return a page of feed events for the viewer. Actor selection is delegated
+   * to the {@link FeedScope} — friends graph, club members, a mix, etc.
+   * Events are ordered by **event date** (newest first) — NOT by row id,
+   * which would expose insertion order.
    *
    * Pagination: composite keyset cursor `<createdAtMillis>_<id>` so it stays
    * consistent across pages even when two events share a `createdAt`.
@@ -127,12 +126,14 @@ export class FeedService {
    */
   async getFeed(
     viewerId: number,
+    scope: FeedScope,
     cursor?: string,
     limit = FEED_PAGE_SIZE_DEFAULT,
     since?: Date
   ): Promise<FeedPage> {
     const clampedLimit = Math.min(Math.max(limit, 1), FEED_PAGE_SIZE_MAX);
-    const friendIds = await this.friendsService.listFriendIds(viewerId);
+
+    const actorIds = await scope.resolveActorIds(viewerId);
 
     // Fire-and-forget retention sweep. `tryClaimRun` short-circuits ~all calls
     // (one cheap UPDATE), so this is effectively free except once per 24h.
@@ -140,7 +141,7 @@ export class FeedService {
       logger.error({ err }, '[Feed] retention sweep failed');
     });
 
-    if (friendIds.length === 0) {
+    if (actorIds.length === 0) {
       return { events: [], nextCursor: null };
     }
 
@@ -164,7 +165,7 @@ export class FeedService {
     // Fetch one extra row to know whether there's a next page.
     const rows = await prisma.feedEvent.findMany({
       where: {
-        actorId: { in: friendIds },
+        actorId: { in: actorIds },
         ...cursorWhere,
         ...sinceWhere,
       },
@@ -317,33 +318,37 @@ export class FeedService {
   /**
    * Cheap signature used by the controller to answer conditional GETs.
    *
-   * Hashes `(viewerId, friendSet, latestFriendEvent)` so the ETag flips when
-   * any of those change. One small query (`findFirst` on the indexed
+   * Hashes `(viewerId, scopeKey, actorSet, latestEvent)` so the ETag flips
+   * when any of those change. One small query (`findFirst` on the indexed
    * `(actorId, createdAt)` path) — runs in front of the heavy feed query
    * specifically so we can short-circuit to 304 before hydrating.
    */
-  async computeSignature(viewerId: number): Promise<{ etag: string; hasFriends: boolean }> {
-    const friendIds = await this.friendsService.listFriendIds(viewerId);
-    if (friendIds.length === 0) {
-      const raw = `v1:${viewerId}:nofriends`;
-      return { etag: weakEtag(raw), hasFriends: false };
+  async computeSignature(
+    viewerId: number,
+    scope: FeedScope
+  ): Promise<{ etag: string; hasScope: boolean }> {
+    const actorIds = await scope.resolveActorIds(viewerId);
+
+    if (actorIds.length === 0) {
+      const raw = `v1:${viewerId}:${scope.scopeKey}:empty`;
+      return { etag: weakEtag(raw), hasScope: false };
     }
 
     const latest = await prisma.feedEvent.findFirst({
-      where: { actorId: { in: friendIds } },
+      where: { actorId: { in: actorIds } },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: { id: true, createdAt: true },
     });
 
-    const friendsHash = crypto
+    const actorsHash = crypto
       .createHash('md5')
-      .update([...friendIds].sort((a, b) => a - b).join(','))
+      .update([...actorIds].sort((a, b) => a - b).join(','))
       .digest('hex')
       .slice(0, 8);
 
     const latestPart = latest ? `${latest.createdAt.getTime()}_${latest.id.toString()}` : 'empty';
-    const raw = `v1:${viewerId}:${friendsHash}:${latestPart}`;
-    return { etag: weakEtag(raw), hasFriends: true };
+    const raw = `v1:${viewerId}:${scope.scopeKey}:${actorsHash}:${latestPart}`;
+    return { etag: weakEtag(raw), hasScope: true };
   }
 
   /**

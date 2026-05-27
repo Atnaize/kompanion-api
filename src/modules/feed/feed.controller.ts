@@ -1,5 +1,24 @@
 import type { Request, Response } from 'express';
 import { FeedService } from './feed.service.js';
+import {
+  ClubFeedScope,
+  CompositeFeedScope,
+  FriendsFeedScope,
+  type FeedScope,
+} from './feed.scopes.js';
+
+function buildScope(query: Request['query']): FeedScope {
+  const clubId = typeof query.clubId === 'string' ? query.clubId : undefined;
+  const mix = query.mix === 'true' || query.mix === '1';
+
+  if (clubId && mix) {
+    return new CompositeFeedScope([new FriendsFeedScope(), new ClubFeedScope(clubId)]);
+  }
+  if (clubId) {
+    return new ClubFeedScope(clubId);
+  }
+  return new FriendsFeedScope();
+}
 
 export class FeedController {
   private feedService = new FeedService();
@@ -45,7 +64,9 @@ export class FeedController {
         since = parsed;
       }
 
-      const { etag } = await this.feedService.computeSignature(userId);
+      const scope = buildScope(req.query);
+
+      const { etag } = await this.feedService.computeSignature(userId, scope);
 
       // Always advertise the ETag so the client can use it on the next poll.
       res.setHeader('ETag', etag);
@@ -62,11 +83,16 @@ export class FeedController {
         }
       }
 
-      const page = await this.feedService.getFeed(userId, cursor, limit, since);
+      const page = await this.feedService.getFeed(userId, scope, cursor, limit, since);
       res.status(200).json({ success: true, data: page });
     } catch (error) {
       if (error instanceof Error) {
-        const status = error.message === 'Invalid cursor' ? 400 : 500;
+        const status =
+          error.message === 'Invalid cursor'
+            ? 400
+            : error.message.startsWith('FORBIDDEN')
+              ? 403
+              : 500;
         res.status(status).json({ success: false, error: error.message });
         return;
       }

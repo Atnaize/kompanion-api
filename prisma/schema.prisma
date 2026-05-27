@@ -20,46 +20,52 @@ datasource db {
 
 // User model - Athletes using the app
 model User {
-  id                    Int      @id @default(autoincrement())
-  stravaId              Int      @unique
-  username              String?
-  firstname             String
-  lastname              String
-  profile               String
-  profileMedium         String
-  accessToken           String
-  refreshToken          String
-  tokenExpiresAt        BigInt
-  lastSyncedAt          DateTime?
-  achievementStartDate  DateTime? // When user started tracking achievements
-  isAdmin               Boolean   @default(false) // Admin users have access to admin panel
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  id                   Int       @id @default(autoincrement())
+  stravaId             Int       @unique
+  username             String?
+  firstname            String
+  lastname             String
+  profile              String
+  profileMedium        String
+  accessToken          String
+  refreshToken         String
+  tokenExpiresAt       BigInt
+  lastSyncedAt         DateTime?
+  achievementStartDate DateTime? // When user started tracking achievements
+  isAdmin              Boolean   @default(false) // Admin users have access to admin panel
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   // Relations
-  activities            Activity[]
-  achievements          UserAchievement[]
-  achievementProgress   AchievementProgress[]
-  stats                 UserStats?
-  refreshTokens         RefreshToken[]
-  createdChallenges     Challenge[]
-  challengeParticipants ChallengeParticipant[]
-  challengeActivities   ChallengeActivity[]
-  pushSubscriptions     PushSubscription[]
-  notificationPreferences NotificationPreference?
-  personalRecords       PersonalRecord[]
-  stravaApiUsage        StravaApiUsage[]
-  stravaApiGrantsReceived StravaApiGrant[] @relation("GrantRecipient")
-  stravaApiGrantsIssued   StravaApiGrant[] @relation("GrantIssuer")
-  friendshipsOut          Friendship[]     @relation("FriendshipRequester")
-  friendshipsIn           Friendship[]     @relation("FriendshipAddressee")
-  feedEvents              FeedEvent[]
-  notifications           Notification[] @relation("NotificationRecipient")
-  notificationsCaused     Notification[] @relation("NotificationActor")
-  blocksIssued            UserBlock[] @relation("UserBlockBlocker")
-  blocksReceived          UserBlock[] @relation("UserBlockBlocked")
-  mutesIssued             UserMute[]  @relation("UserMuteMuter")
-  mutesReceived           UserMute[]  @relation("UserMuteMuted")
+  activities               Activity[]
+  achievements             UserAchievement[]
+  achievementProgress      AchievementProgress[]
+  stats                    UserStats?
+  refreshTokens            RefreshToken[]
+  createdChallenges        Challenge[]
+  challengeParticipants    ChallengeParticipant[]
+  challengeActivities      ChallengeActivity[]
+  pushSubscriptions        PushSubscription[]
+  notificationPreferences  NotificationPreference?
+  personalRecords          PersonalRecord[]
+  stravaApiUsage           StravaApiUsage[]
+  stravaApiGrantsReceived  StravaApiGrant[]          @relation("GrantRecipient")
+  stravaApiGrantsIssued    StravaApiGrant[]          @relation("GrantIssuer")
+  friendshipsOut           Friendship[]              @relation("FriendshipRequester")
+  friendshipsIn            Friendship[]              @relation("FriendshipAddressee")
+  feedEvents               FeedEvent[]
+  notifications            Notification[]            @relation("NotificationRecipient")
+  notificationsCaused      Notification[]            @relation("NotificationActor")
+  blocksIssued             UserBlock[]               @relation("UserBlockBlocker")
+  blocksReceived           UserBlock[]               @relation("UserBlockBlocked")
+  mutesIssued              UserMute[]                @relation("UserMuteMuter")
+  mutesReceived            UserMute[]                @relation("UserMuteMuted")
+  createdClubs             Club[]                    @relation("ClubCreator")
+  clubMemberships          ClubMember[]              @relation("ClubMemberUser")
+  clubInvitesSent          ClubMember[]              @relation("ClubMemberInviter")
+  conversationParticipants ConversationParticipant[]
+  authoredMessages         Message[]                 @relation("MessageAuthor")
+  messageReactions         MessageReaction[]
 
   @@index([stravaId])
   @@map("users")
@@ -71,15 +77,16 @@ model User {
 // (friend ids)` and renders by `type` via a renderer registry, so adding a
 // new event type is a new string value + a new component — no schema change.
 model FeedEvent {
-  id          BigInt   @id @default(autoincrement())
-  actorId     Int
-  type        String   // see registry in src/modules/feed/feed.types.ts
-  entityType  String?  // "activity" | "achievement" | "personal_record" | "challenge" | ...
-  entityId    String?  // String so we can hold BigInt activity ids or UUID challenge ids
-  metadata    Json?    // per-type payload (e.g. { name, distance, activityType })
-  createdAt   DateTime @default(now())
+  id         BigInt   @id @default(autoincrement())
+  actorId    Int
+  type       String // see registry in src/modules/feed/feed.types.ts
+  entityType String? // "activity" | "achievement" | "personal_record" | "challenge" | ...
+  entityId   String? // String so we can hold BigInt activity ids or UUID challenge ids
+  metadata   Json? // per-type payload (e.g. { name, distance, activityType })
+  createdAt  DateTime @default(now())
 
-  actor       User @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  actor User @relation(fields: [actorId], references: [id], onDelete: Cascade)
+
   @@index([actorId, createdAt])
   @@index([createdAt])
   // Type-filtered feed queries ("show me only PR events", admin dashboards).
@@ -94,18 +101,18 @@ model FeedEvent {
 // Why a separate table from FeedEvent? FeedEvent is a public stream filtered
 // by friendship; Notification is private to the recipient and tracks read state.
 model Notification {
-  id          BigInt    @id @default(autoincrement())
-  userId      Int                 // recipient
-  type        String              // e.g. "friend_request", "friend_accepted", "achievement_unlocked", "challenge_invite", "challenge_joined"
-  actorId     Int?                // who caused it (null for system events)
-  entityType  String?             // "user" | "achievement" | "challenge" | …
-  entityId    String?
-  metadata    Json?
-  readAt      DateTime?
-  createdAt   DateTime  @default(now())
+  id         BigInt    @id @default(autoincrement())
+  userId     Int // recipient
+  type       String // e.g. "friend_request", "friend_accepted", "achievement_unlocked", "challenge_invite", "challenge_joined"
+  actorId    Int? // who caused it (null for system events)
+  entityType String? // "user" | "achievement" | "challenge" | …
+  entityId   String?
+  metadata   Json?
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
 
-  user        User @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
-  actor       User? @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  user  User  @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  actor User? @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
 
   @@index([userId, readAt, createdAt])
   @@index([userId, createdAt])
@@ -121,15 +128,15 @@ enum FriendshipStatus {
 }
 
 model Friendship {
-  id           Int               @id @default(autoincrement())
-  requesterId  Int
-  addresseeId  Int
-  status       FriendshipStatus
-  createdAt    DateTime          @default(now())
-  acceptedAt   DateTime?
+  id          Int              @id @default(autoincrement())
+  requesterId Int
+  addresseeId Int
+  status      FriendshipStatus
+  createdAt   DateTime         @default(now())
+  acceptedAt  DateTime?
 
-  requester    User @relation("FriendshipRequester", fields: [requesterId], references: [id], onDelete: Cascade)
-  addressee    User @relation("FriendshipAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+  requester User @relation("FriendshipRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee User @relation("FriendshipAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
 
   @@unique([requesterId, addresseeId])
   @@index([addresseeId, status])
@@ -143,13 +150,13 @@ model Friendship {
 // shared challenges marked left for the blocker. Asymmetric row (blockerId is
 // the one who took the action), but the visibility check treats it as bidirectional.
 model UserBlock {
-  id         Int      @id @default(autoincrement())
-  blockerId  Int
-  blockedId  Int
-  createdAt  DateTime @default(now())
+  id        Int      @id @default(autoincrement())
+  blockerId Int
+  blockedId Int
+  createdAt DateTime @default(now())
 
-  blocker    User @relation("UserBlockBlocker", fields: [blockerId], references: [id], onDelete: Cascade)
-  blocked    User @relation("UserBlockBlocked", fields: [blockedId], references: [id], onDelete: Cascade)
+  blocker User @relation("UserBlockBlocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("UserBlockBlocked", fields: [blockedId], references: [id], onDelete: Cascade)
 
   @@unique([blockerId, blockedId])
   // "Has anyone blocked me?" — used to expand the hidden-set during filter fan-out.
@@ -161,62 +168,118 @@ model UserBlock {
 // show B's events, but friendship stays intact and B is unaffected. No
 // notifications are suppressed (muting != blocking).
 model UserMute {
-  id         Int      @id @default(autoincrement())
-  muterId    Int
-  mutedId    Int
-  createdAt  DateTime @default(now())
+  id        Int      @id @default(autoincrement())
+  muterId   Int
+  mutedId   Int
+  createdAt DateTime @default(now())
 
-  muter      User @relation("UserMuteMuter", fields: [muterId], references: [id], onDelete: Cascade)
-  muted      User @relation("UserMuteMuted", fields: [mutedId], references: [id], onDelete: Cascade)
+  muter User @relation("UserMuteMuter", fields: [muterId], references: [id], onDelete: Cascade)
+  muted User @relation("UserMuteMuted", fields: [mutedId], references: [id], onDelete: Cascade)
 
   @@unique([muterId, mutedId])
   @@map("user_mutes")
 }
 
+// Club - persistent group of users with shared identity and (eventually) a
+// scoped feed + leaderboard + ability to launch group challenges. Visibility
+// is either 'private' (invite-only, hidden from Discover) or 'public' (joinable
+// via request, listed in Discover). Avatar + banner are derived client-side
+// from `name` for now; richer customisation lands later.
+model Club {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  name        String
+  description String?
+  visibility  String   @default("private") // 'private' | 'public'
+  // Optional accent color the owner picks for the club's banner + avatar
+  // gradient. One of the named palette entries; null = use the deterministic
+  // hash-based default. Lets owners "skin" their club without needing file
+  // uploads.
+  accentColor String?
+  createdById Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  creator      User          @relation("ClubCreator", fields: [createdById], references: [id])
+  members      ClubMember[]
+  challenges   Challenge[]
+  conversation Conversation?
+
+  @@index([createdById])
+  @@index([visibility, createdAt])
+  @@map("clubs")
+}
+
+// ClubMember - one row per (club, user). `status` is the membership lifecycle:
+//   - 'pending_invite'  : invitee hasn't accepted yet (one of the club's members invited them)
+//   - 'pending_request' : a user asked to join a public club; club admin must approve
+//   - 'active'          : confirmed member with the assigned `role`
+// `role` is meaningful only when status='active'. Owners can never leave without
+// transferring ownership; the service enforces that.
+model ClubMember {
+  id          Int       @id @default(autoincrement())
+  clubId      String
+  userId      Int
+  role        String    @default("member") // 'owner' | 'admin' | 'member'
+  status      String    @default("active") // 'active' | 'pending_invite' | 'pending_request'
+  invitedById Int?
+  joinedAt    DateTime?
+  createdAt   DateTime  @default(now())
+
+  club      Club  @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user      User  @relation("ClubMemberUser", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy User? @relation("ClubMemberInviter", fields: [invitedById], references: [id], onDelete: SetNull)
+
+  @@unique([clubId, userId])
+  @@index([userId, status])
+  @@index([clubId, status])
+  @@map("club_members")
+}
+
 // Activity model - Strava activities
 model Activity {
-  id                  BigInt   @id
-  userId              Int
-  name                String
-  type                String
-  sportType           String
-  distance            Float
-  movingTime          Int
-  elapsedTime         Int
-  totalElevationGain  Float
-  startDate           DateTime
-  startDateLocal      DateTime
-  averageSpeed        Float
-  maxSpeed            Float
-  averageWatts        Float?
-  kilojoules          Float?
-  averageHeartrate    Float?
-  maxHeartrate        Float?
-  elevHigh            Float?
-  elevLow             Float?
-  kudosCount          Int      @default(0)
-  commentCount        Int      @default(0)
-  photoCount          Int      @default(0) // total_photo_count from Strava (includes Instagram + native)
-  achievementCount    Int      @default(0)
-  prCount             Int      @default(0)
-  summaryPolyline     String?
-  timezone            String
-  manual              Boolean  @default(false)
-  trainer             Boolean  @default(false)
+  id                   BigInt    @id
+  userId               Int
+  name                 String
+  type                 String
+  sportType            String
+  distance             Float
+  movingTime           Int
+  elapsedTime          Int
+  totalElevationGain   Float
+  startDate            DateTime
+  startDateLocal       DateTime
+  averageSpeed         Float
+  maxSpeed             Float
+  averageWatts         Float?
+  kilojoules           Float?
+  averageHeartrate     Float?
+  maxHeartrate         Float?
+  elevHigh             Float?
+  elevLow              Float?
+  kudosCount           Int       @default(0)
+  commentCount         Int       @default(0)
+  photoCount           Int       @default(0) // total_photo_count from Strava (includes Instagram + native)
+  achievementCount     Int       @default(0)
+  prCount              Int       @default(0)
+  summaryPolyline      String?
+  timezone             String
+  manual               Boolean   @default(false)
+  trainer              Boolean   @default(false)
   // Set the first time we successfully fetch /activities/{id}.best_efforts
   // from Strava. NULL = never attempted, so the activity is part of the PR
   // backfill queue. Decoupled from PersonalRecord rows because some runs have
   // no best_efforts that match our tracked bands — we still want to consider
   // them "done" instead of refetching on every visit.
   bestEffortsFetchedAt DateTime?
-  createdAt           DateTime @default(now())
+  createdAt            DateTime  @default(now())
 
   // Relations
-  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  personalRecords     PersonalRecord[]
-  kudoers             ActivityKudoer[]
-  comments            ActivityComment[]
-  photos              ActivityPhoto[]
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  personalRecords PersonalRecord[]
+  kudoers         ActivityKudoer[]
+  comments        ActivityComment[]
+  photos          ActivityPhoto[]
 
   @@index([userId])
   @@index([startDate])
@@ -235,9 +298,9 @@ model Activity {
 model PersonalRecord {
   id              String   @id @default(uuid())
   userId          Int
-  distanceBand    String   // '400m' | '1km' | '5km' | '10km' | '15km' | 'half_marathon' | 'marathon'
-  distanceMeters  Int      // 400, 1000, 5000, 10000, 15000, 21097, 42195
-  bestTimeSeconds Int      // moving_time from Strava best_effort
+  distanceBand    String // '400m' | '1km' | '5km' | '10km' | '15km' | 'half_marathon' | 'marathon'
+  distanceMeters  Int // 400, 1000, 5000, 10000, 15000, 21097, 42195
+  bestTimeSeconds Int // moving_time from Strava best_effort
   activityId      BigInt
   achievedAt      DateTime // start_date of the activity
 
@@ -252,22 +315,22 @@ model PersonalRecord {
 
 // Achievement template - Defines all possible achievements
 model Achievement {
-  id              String   @id
-  name            String
-  description     String
-  icon            String
-  rarity          String   // common, rare, epic, legendary
-  requirementType String   // distance, elevation, activities, speed, streak
+  id               String    @id
+  name             String
+  description      String
+  icon             String
+  rarity           String // common, rare, epic, legendary
+  requirementType  String // distance, elevation, activities, speed, streak
   requirementValue Float
-  activityType    String?
-  isSecret        Boolean  @default(false)
-  validFrom       DateTime? // Start date for time-windowed achievements (null = always available)
-  validUntil      DateTime? // End date for time-windowed achievements (null = always available)
-  createdAt       DateTime @default(now())
+  activityType     String?
+  isSecret         Boolean   @default(false)
+  validFrom        DateTime? // Start date for time-windowed achievements (null = always available)
+  validUntil       DateTime? // End date for time-windowed achievements (null = always available)
+  createdAt        DateTime  @default(now())
 
   // Relations
-  unlockedBy      UserAchievement[]
-  progress        AchievementProgress[]
+  unlockedBy UserAchievement[]
+  progress   AchievementProgress[]
 
   @@index([validFrom, validUntil])
   @@map("achievements")
@@ -281,8 +344,8 @@ model UserAchievement {
   unlockedAt    DateTime @default(now())
 
   // Relations
-  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  achievement   Achievement @relation(fields: [achievementId], references: [id])
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement Achievement @relation(fields: [achievementId], references: [id])
 
   @@unique([userId, achievementId])
   @@index([userId])
@@ -291,18 +354,18 @@ model UserAchievement {
 
 // Achievement progress - Tracks progress towards locked achievements
 model AchievementProgress {
-  id              Int      @id @default(autoincrement())
-  userId          Int
-  achievementId   String
-  currentValue    Float    @default(0)
-  targetValue     Float
-  percentage      Int      @default(0)
-  updatedAt       DateTime @updatedAt
-  createdAt       DateTime @default(now())
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  achievementId String
+  currentValue  Float    @default(0)
+  targetValue   Float
+  percentage    Int      @default(0)
+  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now())
 
   // Relations
-  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  achievement     Achievement @relation(fields: [achievementId], references: [id])
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement Achievement @relation(fields: [achievementId], references: [id])
 
   @@unique([userId, achievementId])
   @@index([userId])
@@ -323,7 +386,7 @@ model UserStats {
   updatedAt       DateTime @updatedAt
 
   // Relations
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   activityTypeStats ActivityTypeStats[]
 
   @@map("user_stats")
@@ -331,16 +394,16 @@ model UserStats {
 
 // Activity type statistics - Breakdown by activity type
 model ActivityTypeStats {
-  id              Int       @id @default(autoincrement())
-  userStatsId     Int
-  activityType    String
-  count           Int       @default(0)
-  distance        Float     @default(0)
-  elevation       Float     @default(0)
-  time            Int       @default(0)
+  id           Int    @id @default(autoincrement())
+  userStatsId  Int
+  activityType String
+  count        Int    @default(0)
+  distance     Float  @default(0)
+  elevation    Float  @default(0)
+  time         Int    @default(0)
 
   // Relations
-  userStats       UserStats @relation(fields: [userStatsId], references: [id], onDelete: Cascade)
+  userStats UserStats @relation(fields: [userStatsId], references: [id], onDelete: Cascade)
 
   @@unique([userStatsId, activityType])
   @@index([userStatsId])
@@ -349,15 +412,15 @@ model ActivityTypeStats {
 
 // JWT Refresh Tokens - For session management
 model RefreshToken {
-  id          String   @id @default(uuid())
-  userId      Int
-  token       String   @unique
-  expiresAt   DateTime
-  createdAt   DateTime @default(now())
-  revokedAt   DateTime?
+  id        String    @id @default(uuid())
+  userId    Int
+  token     String    @unique
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
 
   // Relations
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([token])
@@ -367,17 +430,17 @@ model RefreshToken {
 
 // Push Subscription - Web Push notification endpoints
 model PushSubscription {
-  id          String   @id @default(uuid())
-  userId      Int
-  endpoint    String
-  p256dh      String   // Encryption key
-  auth        String   // Authentication secret
-  userAgent   String?  // To identify device
-  createdAt   DateTime @default(now())
-  lastUsedAt  DateTime @default(now())
+  id         String   @id @default(uuid())
+  userId     Int
+  endpoint   String
+  p256dh     String // Encryption key
+  auth       String // Authentication secret
+  userAgent  String? // To identify device
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime @default(now())
 
   // Relations
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, endpoint])
   @@index([userId])
@@ -386,84 +449,103 @@ model PushSubscription {
 
 // Notification Preferences - User notification settings
 model NotificationPreference {
-  id                          Int      @id @default(autoincrement())
-  userId                      Int      @unique
+  id     Int @id @default(autoincrement())
+  userId Int @unique
 
   // Challenge-related — `challengeUpdates` is a single umbrella for joins,
   // milestones, activity updates, cancellations, and completions of challenges
   // the user is in (separate from `challengeInvites` which controls "can someone
   // pull me into a new challenge").
-  challengeInvites            Boolean  @default(true)
-  challengeUpdates            Boolean  @default(true)
+  challengeInvites Boolean @default(true)
+  challengeUpdates Boolean @default(true)
+  // Chat messages in any conversation the user is part of (challenge, club,
+  // future DM). Per-conversation mute (`mutedUntil` on ConversationParticipant)
+  // is a finer-grained override applied at emit time; this flag is the global
+  // escape hatch.
+  chatMessages     Boolean @default(true)
+  // @mentions in chat. Always emits a push even if chatMessages is off — being
+  // called out by name is the kind of signal worth interrupting.
+  chatMentions     Boolean @default(true)
+  // Someone reacted to a message you authored.
+  chatReactions    Boolean @default(true)
+  // Someone replied to a message you authored.
+  chatReplies      Boolean @default(true)
 
   // Friend-related (M3)
-  friendRequests              Boolean  @default(true)
-  friendAccepted              Boolean  @default(true)
+  friendRequests Boolean @default(true)
+  friendAccepted Boolean @default(true)
 
   // Achievement-related (M3)
-  achievementUnlocked         Boolean  @default(true)
+  achievementUnlocked Boolean @default(true)
 
-  createdAt                   DateTime @default(now())
-  updatedAt                   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  user                        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("notification_preferences")
 }
 
 // Challenge - Social challenges between users
 model Challenge {
-  id              String   @id @default(uuid())
-  creatorId       Int
-  name            String
-  description     String?
-  type            String   // collaborative, competitive
-  status          String   // draft, active, completed, failed, cancelled
-  startDate       DateTime
-  endDate         DateTime
+  id          String   @id @default(uuid())
+  creatorId   Int
+  // Optional "owner" club. When set, the challenge is scoped to that club:
+  // pre-filled member picker on create, surfaced on the club's overview tab,
+  // and (later) chat/leaderboard scope. Null = standalone friend challenge.
+  clubId      String?
+  name        String
+  description String?
+  type        String // collaborative, competitive
+  status      String // draft, active, completed, failed, cancelled
+  startDate   DateTime
+  endDate     DateTime
 
   // Target metrics (JSON for flexibility)
   // Example: { distance: 150000, elevation: 5000, activityType: "Run" }
-  targets         Json
+  targets Json
 
   // Competitive goal type (null for collaborative)
   // Values: most, least, exact
   competitiveGoal String?
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  creator         User                   @relation(fields: [creatorId], references: [id])
-  participants    ChallengeParticipant[]
-  activities      ChallengeActivity[]
-  events          ChallengeEvent[]
+  creator      User                   @relation(fields: [creatorId], references: [id])
+  club         Club?                  @relation(fields: [clubId], references: [id], onDelete: SetNull)
+  participants ChallengeParticipant[]
+  activities   ChallengeActivity[]
+  events       ChallengeEvent[]
+  conversation Conversation?
 
   @@index([status, endDate])
   @@index([creatorId])
+  @@index([clubId, status])
   @@map("challenges")
 }
 
 // Challenge participants - Users in a challenge
 model ChallengeParticipant {
-  id              Int      @id @default(autoincrement())
-  challengeId     String
-  userId          Int
-  status          String   // invited, accepted, declined, left
-  invitedAt       DateTime @default(now())
-  acceptedAt      DateTime?
+  id          Int       @id @default(autoincrement())
+  challengeId String
+  userId      Int
+  status      String // invited, accepted, declined, left
+  invitedAt   DateTime  @default(now())
+  acceptedAt  DateTime?
 
   // Cached progress
-  totalDistance   Float    @default(0)
-  totalElevation  Float    @default(0)
-  activityCount   Int      @default(0)
-  lastActivityAt  DateTime?
+  totalDistance  Float     @default(0)
+  totalElevation Float     @default(0)
+  activityCount  Int       @default(0)
+  lastActivityAt DateTime?
   summarySeenAt  DateTime?
 
   // Relations
-  challenge       Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  challenge Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([challengeId, userId])
   @@index([userId])
@@ -472,22 +554,132 @@ model ChallengeParticipant {
   @@map("challenge_participants")
 }
 
+// Generic chat container. Polymorphic owner: exactly one of `clubId` /
+// `challengeId` is set for CLUB/CHALLENGE conversations; both null for DMs.
+// One conversation per club and per challenge (enforced by unique indexes).
+// DMs use participants as the source of truth and have no scope FK.
+model Conversation {
+  id          String   @id @default(uuid())
+  kind        String // 'dm' | 'club' | 'challenge'
+  // DM-only fields. `dmKey` is a canonical "<minUserId>-<maxUserId>" string for
+  // 1:1 DMs — a unique key to upsert against, mirroring the unique clubId/
+  // challengeId on scoped conversations. Null for group DMs, clubs, challenges.
+  // `title` names a group DM; null for 1:1 DMs and scoped conversations.
+  dmKey       String?  @unique
+  title       String?
+  clubId      String?  @unique
+  challengeId String?  @unique
+  createdAt   DateTime @default(now())
+
+  club         Club?                     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  challenge    Challenge?                @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  @@index([kind])
+  @@map("conversations")
+}
+
+// Per-(conversation, user) chat state. For DMs this is also the membership
+// source of truth. For CLUB/CHALLENGE conversations, membership is derived
+// from ClubMember/ChallengeParticipant — these rows are lazily upserted to
+// store `lastReadAt` / `mutedUntil` when the user first interacts.
+model ConversationParticipant {
+  id             Int       @id @default(autoincrement())
+  conversationId String
+  userId         Int
+  role           String    @default("member")
+  joinedAt       DateTime  @default(now())
+  lastReadAt     DateTime?
+  mutedUntil     DateTime?
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+  @@map("conversation_participants")
+}
+
+// Polymorphic chat message.
+//   kind='text'             — regular bubble; `body` set, `authorId` set.
+//   kind='activity_digest'  — daily roll-up of activities logged in a challenge;
+//                             `authorId` null, `payload` holds
+//                             { date, activities: [{ userId, activityId, ... }] }.
+//                             Appended in place within the same day so the chat
+//                             gets one card per day instead of one per activity.
+//   kind='system'           — reserved for future system events.
+//
+// Threading: `parentId` points at a parent message for replies. One level deep
+// (Slack-style) — replies of replies are not supported.
+model Message {
+  id             String    @id @default(uuid())
+  conversationId String
+  authorId       Int?
+  kind           String
+  body           String?
+  payload        Json?
+  parentId       String?
+  // List of user IDs @-mentioned in `body`. Json (not a join) because the set
+  // is tiny, immutable post-send, and we never query "messages where X was
+  // mentioned" globally — only "deliver a mention notification right now".
+  mentions       Json?
+  createdAt      DateTime  @default(now())
+  editedAt       DateTime?
+
+  conversation Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  author       User?             @relation("MessageAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  parent       Message?          @relation("MessageReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies      Message[]         @relation("MessageReplies")
+  reactions    MessageReaction[]
+
+  // Point lookups of a specific message within a conversation (reply-parent and
+  // reaction-target checks). NOT timeline order — ids are random UUIDs.
+  @@index([conversationId, id])
+  // Timeline: a conversation's messages ordered by createdAt. Backs cursor
+  // pagination, which keys on (createdAt, id). The main query also filters
+  // `parentId IS NULL` so replies don't appear at top level.
+  @@index([conversationId, createdAt])
+  @@index([parentId])
+  @@index([authorId])
+  // Activity-digest upsert: find today's digest in a conversation cheaply.
+  @@index([conversationId, kind, createdAt])
+  @@map("messages")
+}
+
+// Quick-set reactions only: 👍 ❤️ 🔥 👏 🎉. Allowlist enforced server-side
+// so we don't need an emoji shortcode lookup or unicode validation.
+model MessageReaction {
+  id        Int      @id @default(autoincrement())
+  messageId String
+  userId    Int
+  emoji     String
+  createdAt DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+  @@map("message_reactions")
+}
+
 // Challenge activities - Activities linked to challenges
 model ChallengeActivity {
-  id              String   @id @default(uuid())
-  challengeId     String
-  userId          Int
-  activityId      BigInt   // Strava activity ID
-  distance        Float
-  elevation       Float
-  movingTime      Int
-  activityType    String
-  recordedAt      DateTime // Activity start date
-  createdAt       DateTime @default(now())
+  id           String   @id @default(uuid())
+  challengeId  String
+  userId       Int
+  activityId   BigInt // Strava activity ID
+  distance     Float
+  elevation    Float
+  movingTime   Int
+  activityType String
+  recordedAt   DateTime // Activity start date
+  createdAt    DateTime @default(now())
 
   // Relations
-  challenge       Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
-  user            User      @relation(fields: [userId], references: [id])
+  challenge Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id])
 
   @@unique([challengeId, activityId]) // Prevent duplicates
   @@index([challengeId, userId])
@@ -498,15 +690,15 @@ model ChallengeActivity {
 
 // Challenge events - For frontend polling
 model ChallengeEvent {
-  id              String   @id @default(uuid())
-  challengeId     String
-  userId          Int?     // Who triggered (null for system events)
-  type            String   // activity_added, milestone_reached, completed, etc
-  data            Json     // Event-specific data
-  createdAt       DateTime @default(now())
+  id          String   @id @default(uuid())
+  challengeId String
+  userId      Int? // Who triggered (null for system events)
+  type        String // activity_added, milestone_reached, completed, etc
+  data        Json // Event-specific data
+  createdAt   DateTime @default(now())
 
   // Relations
-  challenge       Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  challenge Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
 
   @@index([challengeId, createdAt]) // For polling queries
   @@map("challenge_events")
@@ -527,7 +719,7 @@ model ActivityKudoer {
   profile       String?
   profileMedium String?
 
-  activity      Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  activity Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
 
   @@index([activityId])
   @@map("activity_kudoers")
@@ -537,7 +729,7 @@ model ActivityKudoer {
 model ActivityComment {
   id                   BigInt   @id // Strava comment id
   activityId           BigInt
-  athleteId            BigInt?  // null when Strava strips the athlete (deleted / blocked / privacy)
+  athleteId            BigInt? // null when Strava strips the athlete (deleted / blocked / privacy)
   athleteFirstname     String?
   athleteLastname      String?
   athleteProfile       String?
@@ -545,7 +737,7 @@ model ActivityComment {
   text                 String
   commentedAt          DateTime // Strava's `created_at`
 
-  activity             Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  activity Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
 
   @@index([activityId])
   @@map("activity_comments")
@@ -553,14 +745,14 @@ model ActivityComment {
 
 // Cached activity photos. unique_id is Strava's stable PK.
 model ActivityPhoto {
-  uniqueId      String  @id // Strava `unique_id`
-  activityId    BigInt
-  caption       String?
-  urls          Json    // { "100": "...", "600": "...", "2048": "..." }
-  defaultPhoto  Boolean @default(false)
-  takenAt       DateTime?
+  uniqueId     String    @id // Strava `unique_id`
+  activityId   BigInt
+  caption      String?
+  urls         Json // { "100": "...", "600": "...", "2048": "..." }
+  defaultPhoto Boolean   @default(false)
+  takenAt      DateTime?
 
-  activity      Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  activity Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
 
   @@index([activityId])
   @@map("activity_photos")
@@ -571,14 +763,14 @@ model ActivityPhoto {
 // validate `verify_token`. Once Strava returns the subscription id, we update
 // the row to status=active. We keep historical rows for audit.
 model WebhookSubscription {
-  id             Int      @id @default(autoincrement())
-  stravaId       Int?     @unique         // Null while pending; set after Strava confirms
-  callbackUrl    String
-  verifyToken    String                   // Echoed during the GET handshake
-  status         String   @default("pending") // "pending" | "active" | "deleted"
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  deletedAt      DateTime?
+  id          Int       @id @default(autoincrement())
+  stravaId    Int?      @unique // Null while pending; set after Strava confirms
+  callbackUrl String
+  verifyToken String // Echoed during the GET handshake
+  status      String    @default("pending") // "pending" | "active" | "deleted"
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
 
   @@index([verifyToken])
   @@index([status])
@@ -587,23 +779,23 @@ model WebhookSubscription {
 
 // Every webhook event we receive — full audit log for debugging.
 model WebhookEvent {
-  id             String    @id @default(uuid())
-  objectType     String    // "activity" | "athlete"
+  id             String   @id @default(uuid())
+  objectType     String // "activity" | "athlete"
   objectId       BigInt
-  aspectType     String    // "create" | "update" | "delete"
-  ownerId        BigInt    // Strava athlete ID
+  aspectType     String // "create" | "update" | "delete"
+  ownerId        BigInt // Strava athlete ID
   subscriptionId Int
-  eventTime      DateTime  // From Strava's event_time
-  updates        Json?     // The "updates" hash from Strava
-  rawPayload     Json      // Full POST body for debugging
-  source         String    @default("strava") // "strava" | "simulated"
+  eventTime      DateTime // From Strava's event_time
+  updates        Json? // The "updates" hash from Strava
+  rawPayload     Json // Full POST body for debugging
+  source         String   @default("strava") // "strava" | "simulated"
 
-  receivedAt     DateTime  @default(now())
-  status         String    @default("pending") // "pending" | "processing" | "processed" | "failed" | "skipped"
-  error          String?
-  attempts       Int       @default(0)
-  processedAt    DateTime?
-  processingLog  Json?     // Array of { ts, level, message } for per-event debugging
+  receivedAt    DateTime  @default(now())
+  status        String    @default("pending") // "pending" | "processing" | "processed" | "failed" | "skipped"
+  error         String?
+  attempts      Int       @default(0)
+  processedAt   DateTime?
+  processingLog Json? // Array of { ts, level, message } for per-event debugging
 
   @@index([status])
   @@index([ownerId])
@@ -621,13 +813,13 @@ model WebhookEvent {
 //   'webhook_fetch'  — single fetch triggered by an activity:create webhook
 //   'activity_sync'  — paginated /athlete/activities list during sync
 model StravaApiUsage {
-  id      Int      @id @default(autoincrement())
-  userId  Int
-  date    DateTime @db.Date
-  kind    String
-  count   Int      @default(0)
+  id     Int      @id @default(autoincrement())
+  userId Int
+  date   DateTime @db.Date
+  kind   String
+  count  Int      @default(0)
 
-  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, date, kind])
   @@index([date, kind])
@@ -664,7 +856,7 @@ model StravaApiGrant {
 model ScheduledJobRun {
   name       String   @id
   lastRunAt  DateTime @default(now())
-  lastResult String?  // 'ok' | 'error' | free-form
+  lastResult String? // 'ok' | 'error' | free-form
   updatedAt  DateTime @updatedAt
 
   @@map("scheduled_job_runs")

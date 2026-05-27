@@ -8,6 +8,7 @@ import type {
 } from '@shared/types/index.js';
 import type { Prisma } from '@prisma/client';
 import { notificationEmitter } from '../inbox/index.js';
+import { activityDigestService, type DigestActivity } from '../chat/index.js';
 import { FriendsService } from '../friends/friends.service.js';
 import { logger } from '@shared/logger/index.js';
 
@@ -32,6 +33,13 @@ interface CreateChallengeData {
   targets: ChallengeTargets;
   competitiveGoal?: CompetitiveGoal;
   invitedUserIds?: number[];
+  /**
+   * Optional club to attach this challenge to. When set, the creator must be
+   * an active member of the club, and every invitee must also be an active
+   * member (we don't pull random friends into a club's challenge — that
+   * would be a back-door into the club's leaderboard).
+   */
+  clubId?: string;
 }
 
 interface UpdateChallengeData {
@@ -77,7 +85,15 @@ export class ChallengeService {
       throw new Error('Collaborative challenges cannot have a competitive goal');
     }
 
-    if (invitedUserIds && invitedUserIds.length > 0) {
+    // Club-scoped challenges have stricter invitee rules than friend-only ones:
+    // every invitee must already be a club member. Friendship checks are
+    // skipped in that path because club membership implies "knows each other".
+    if (challengeData.clubId) {
+      await this.assertClubMembership(challengeData.creatorId, challengeData.clubId);
+      if (invitedUserIds && invitedUserIds.length > 0) {
+        await this.assertAllClubMembers(challengeData.clubId, invitedUserIds);
+      }
+    } else if (invitedUserIds && invitedUserIds.length > 0) {
       await this.friendsService.assertAllFriends(challengeData.creatorId, invitedUserIds);
     }
 
@@ -162,6 +178,9 @@ export class ChallengeService {
             profile: true,
           },
         },
+        club: {
+          select: { id: true, name: true },
+        },
         participants: {
           include: {
             user: {
@@ -203,24 +222,39 @@ export class ChallengeService {
     filters?: {
       status?: string;
       type?: ChallengeType;
+      /**
+       * When set, lists challenges attached to this club instead of just the
+       * viewer's participating ones. The viewer must be an active club member.
+       */
+      clubId?: string;
     }
   ): Promise<Challenge[]> {
     // Lazily complete expired challenges
     await this.completeExpiredChallenges();
 
-    const challenges = await prisma.challenge.findMany({
-      where: {
-        participants: {
-          some: {
-            userId,
-            status: {
-              in: ['accepted', 'invited'],
+    if (filters?.clubId) {
+      await this.assertClubMembership(userId, filters.clubId);
+    }
+
+    const where: Prisma.ChallengeWhereInput = filters?.clubId
+      ? {
+          clubId: filters.clubId,
+          ...(filters?.status && { status: filters.status }),
+          ...(filters?.type && { type: filters.type }),
+        }
+      : {
+          participants: {
+            some: {
+              userId,
+              status: { in: ['accepted', 'invited'] },
             },
           },
-        },
-        ...(filters?.status && { status: filters.status }),
-        ...(filters?.type && { type: filters.type }),
-      },
+          ...(filters?.status && { status: filters.status }),
+          ...(filters?.type && { type: filters.type }),
+        };
+
+    const challenges = await prisma.challenge.findMany({
+      where,
       include: {
         creator: {
           select: {
@@ -229,6 +263,11 @@ export class ChallengeService {
             lastname: true,
             profile: true,
           },
+        },
+        // Lightweight club hint so cards in the challenges list can show
+        // "from <Club>" without an extra fetch.
+        club: {
+          select: { id: true, name: true },
         },
         participants: {
           include: {
@@ -379,6 +418,11 @@ export class ChallengeService {
       `[Challenge ${challengeId}] Found ${activities.length} retroactive activities to count`
     );
 
+    // Collected for the chat activity_digest write below. Only includes
+    // activities that we actually inserted (skipping pre-existing rows), so
+    // resyncs don't produce duplicate digest entries.
+    const digestEntries: DigestActivity[] = [];
+
     // Add each activity to the challenge
     for (const activity of activities) {
       try {
@@ -421,6 +465,19 @@ export class ChallengeService {
         userInfo.totalDistance += activity.distance;
         result.addedByUser.set(activity.userId, userInfo);
 
+        digestEntries.push({
+          userId: activity.userId,
+          activityId: String(activity.id),
+          type: activity.type,
+          name: activity.name,
+          distance: activity.distance,
+          movingTime: activity.movingTime,
+          elevation: activity.totalElevationGain,
+          // startDateLocal is the activity's local calendar timestamp — exactly
+          // what we want for grouping into "today's runs" cards.
+          recordedAt: activity.startDateLocal.toISOString(),
+        });
+
         console.info(
           `[Challenge ${challengeId}] Added retroactive activity ${activity.id} for user ${activity.userId}`
         );
@@ -430,6 +487,16 @@ export class ChallengeService {
           error
         );
       }
+    }
+
+    // Fire-and-forget chat digest. Failures here must not poison the sync
+    // (the activities are already counted toward challenge progress).
+    if (digestEntries.length > 0) {
+      void activityDigestService
+        .recordForChallenge({ challengeId, activities: digestEntries })
+        .catch((err) =>
+          console.error(`[Chat] activity digest write failed for challenge ${challengeId}:`, err)
+        );
     }
 
     // Recalculate participant totals from actual ChallengeActivity records.
@@ -1000,5 +1067,37 @@ export class ChallengeService {
         summarySeenAt: new Date(),
       },
     });
+  }
+
+  /**
+   * Throws if the user isn't an active member of the given club. Used to gate
+   * club-scoped challenge create and list operations.
+   */
+  private async assertClubMembership(userId: number, clubId: string): Promise<void> {
+    const membership = await prisma.clubMember.findUnique({
+      where: { clubId_userId: { clubId, userId } },
+      select: { status: true },
+    });
+    if (!membership || membership.status !== 'active') {
+      throw new Error('FORBIDDEN: not a club member');
+    }
+  }
+
+  /**
+   * Asserts every userId is an active member of the club. Used when inviting
+   * to a club-scoped challenge — friendship is not enough, you must already
+   * be in the crew.
+   */
+  private async assertAllClubMembers(clubId: string, userIds: number[]): Promise<void> {
+    if (userIds.length === 0) return;
+    const rows = await prisma.clubMember.findMany({
+      where: { clubId, userId: { in: userIds }, status: 'active' },
+      select: { userId: true },
+    });
+    const memberIds = new Set(rows.map((r) => r.userId));
+    const strangers = userIds.filter((id) => !memberIds.has(id));
+    if (strangers.length > 0) {
+      throw new Error('Only club members can be invited to this challenge');
+    }
   }
 }
