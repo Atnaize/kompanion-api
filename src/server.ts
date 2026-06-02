@@ -23,6 +23,7 @@ import { privacyRoutes } from './modules/privacy/index.js';
 import { clubsRoutes } from './modules/clubs/index.js';
 import { chatRoutes } from './modules/chat/index.js';
 import { realtimeRoutes } from './modules/realtime/index.js';
+import { publicRoutes } from './modules/public/index.js';
 import { apiReference } from '@scalar/express-api-reference';
 import { getOpenApiDocument } from './shared/openapi/document.js';
 
@@ -112,6 +113,7 @@ app.use('/api/activities/sync', syncLimiter);
 
 app.use('/api/activities', activitiesRoutes);
 app.use('/api/stats', statsRoutes);
+app.use('/api/public', publicRoutes);
 app.use('/api/achievements', achievementsRoutes);
 app.use('/api/challenges', challengeRoutes);
 app.use('/api/friends', friendsRoutes);

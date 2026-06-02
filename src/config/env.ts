@@ -43,6 +43,10 @@ const envSchema = z.object({
   // client falls back to polling. The browser never sees this key — it mints
   // short-lived, capability-scoped tokens via POST /api/realtime/token.
   ABLY_API_KEY: z.string().min(1).optional(),
+
+  // Owner whose stats are exposed (no auth) via GET /api/public/stats — powers
+  // the public portfolio site. When unset we fall back to the first admin user.
+  PUBLIC_STATS_USER_ID: z.coerce.number().int().positive().optional(),
 });
 
 const parseEnv = (): z.infer<typeof envSchema> => {
@@ -98,5 +102,8 @@ export const config = {
   realtime: {
     ablyApiKey: env.ABLY_API_KEY ?? null,
     enabled: !!env.ABLY_API_KEY,
+  },
+  publicStats: {
+    userId: env.PUBLIC_STATS_USER_ID ?? null,
   },
 } as const;
